@@ -1,7 +1,5 @@
 # Pulse — Creator Coins on the Internet Computer (ICP)
 
-![Pulse Banner](./src/pulse_frontend/public/pulse.png) <!-- Optional: add a cool banner image -->
-
 <p align="center">
   <img src="./src/pulse_frontend/public/pulse.png" alt="Pulse Banner" width="400"/>
 </p>
