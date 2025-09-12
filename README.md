@@ -2,6 +2,10 @@
 
 ![Pulse Banner](./src/pulse_frontend/public/pulse.png) <!-- Optional: add a cool banner image -->
 
+<p align="center">
+  <img src="./src/pulse_frontend/public/pulse.png" alt="Pulse Banner" width="400"/>
+</p>
+
 ## 🌐 Overview
 
 **Pulse** is a decentralized platform built on the **Internet Computer (ICP)** using **Motoko** and **React**. It empowers **influencers, businesses, and creators** to mint their own community-driven digital tokens (like NFTs or branded coins) directly on-chain. These tokens can be **created, traded, and marketed** to their audience without intermediaries.
