@@ -1,6 +1,6 @@
 # Pulse — Creator Coins on the Internet Computer (ICP)
 
-![Pulse Banner](./docs/banner.png) <!-- Optional: add a cool banner image -->
+![Pulse Banner](./src/pulse_frontend/public/pulse.png) <!-- Optional: add a cool banner image -->
 
 ## 🌐 Overview
 
@@ -85,6 +85,21 @@ Pulse leverages:
 * **Backend**: Motoko Canisters on ICP
 * **Auth**: Internet Identity
 * **Deployment**: DFX + Canister model
+
+---
+
+
+## 🔮 Future Vision
+
+* Expand beyond tokens into **creator NFTs**, event tickets, and gated fan experiences.
+* Provide creators with **analytics dashboards** for engagement tracking.
+* Enable **treasury pools and DAO governance** for creator-fan communities.
+
+---
+
+## 🤝 Contributing
+
+We welcome contributions from developers, designers, and blockchain enthusiasts. Submit a PR or open an issue to join the Pulse movement.
 
 ---
 
