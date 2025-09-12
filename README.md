@@ -1,8 +1,8 @@
-# Pulse
+# Pulse — Creator Coins on the Internet Computer (ICP)
 
 ![Pulse Banner](./docs/banner.png) <!-- Optional: add a cool banner image -->
 
-## Overview
+## 🌐 Overview
 
 **Pulse** is a decentralized platform built on the **Internet Computer (ICP)** using **Motoko** and **React**. It empowers **influencers, businesses, and creators** to mint their own community-driven digital tokens (like NFTs or branded coins) directly on-chain. These tokens can be **created, traded, and marketed** to their audience without intermediaries.
 
@@ -13,9 +13,36 @@ Pulse leverages:
 * **Chain Fusion** (ICP interoperability) for future cross-chain growth.
 * **React Frontend** for an interactive user experience.
 
+
 ---
 
-## Features
+## ⚙️ How It Works
+
+1. **Creator Onboarding**
+
+   * Log in using **Internet Identity**.
+   * Register and create a personal token (with supply model: Fixed or Bonding Curve).
+
+2. **Fan Interaction**
+
+   * Fans log in with Internet Identity.
+   * Purchase creator tokens using ICP or cross-chain assets (BTC/ETH via Chain Fusion).
+   * Trade tokens in the Pulse marketplace.
+
+3. **Growth & Value**
+
+   * As fans buy, token demand rises, increasing token value.
+   * Owners (creators) can also purchase back their tokens — at market price — maintaining fairness.
+
+4. **Revenue Model**
+
+   * **Minting Fees:** A cut from every new token minted.
+   * **Transaction Fees:** A small percentage fee on all trades.
+   * **Optional Withdrawal Fees:** For converting tokens back into ICP or BTC/ETH.
+
+---
+
+## 🚀  Features
 
 * 🎨 **Custom Creator Tokens**: Influencers or brands can mint their own tokens.
 * 💱 **Buy, Sell & Trade**: Fans and supporters can trade tokens peer-to-peer.
@@ -26,6 +53,20 @@ Pulse leverages:
   * Platform fee for token creation.
   * Transaction fees for buys/sells.
   * Transfer fees when tokens are sent peer-to-peer.
+
+---
+
+## 🏗️ Tech Stack
+
+* **Smart Contracts:** Motoko Canisters
+
+  * Token Ledger Canister (balances, transfers, minting)
+  * Marketplace Canister (buy/sell, bonding curve, trading fees)
+  * Registry Canister (metadata for creator tokens)
+* **Authentication:** Internet Identity
+* **Cross-chain:** Chain Fusion (BTC/ETH integrations)
+* **Frontend:** React + TailwindCSS + `@dfinity/agent`
+* **Hosting:** ICP Canisters (frontend + backend all on-chain)
 
 ---
 
