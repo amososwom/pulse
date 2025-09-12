@@ -96,10 +96,12 @@ console.log(canisterId)
             identity and the dapp you're using.
           </p>
         </div>
+        
         <button
         onClick={() => console.log("df")}
-        >Heyy</button>
+        >Hey</button>
       </div>
+
 
       {!state.isAuthenticated ? (
         <Button onClick={login}>Login with Internet Identity</Button>
