@@ -1,0 +1,26 @@
+{
+  "canisters": {
+    "pulse_backend": {
+      "main": "src/pulse_backend/main.mo",
+      "type": "motoko"
+    },
+    "pulse_frontend": {
+      "dependencies": [
+        "pulse_backend"
+      ],
+      "source": [
+        "src/pulse_frontend/dist"
+      ],
+      "type": "assets",
+      "workspace": "pulse_frontend"
+    }
+  },
+  "defaults": {
+    "build": {
+      "args": "",
+      "packtool": ""
+    }
+  },
+  "output_env_file": ".env",
+  "version": 1
+}
