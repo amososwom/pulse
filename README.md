@@ -1,7 +1,7 @@
 # Pulse — Creator Coins on the Internet Computer (ICP)
 
 <p align="center">
-  <img src="./src/pulse_frontend/public/pulse.png" alt="Pulse Banner" background="#34ebcc" width="400"/>
+  <img src="./src/pulse_frontend/public/pulse.png" alt="Pulse Banner" style="background: #34ebcc" width="400"/>
 </p>
 
 ## 🌐 Overview
