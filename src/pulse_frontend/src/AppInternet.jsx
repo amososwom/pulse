@@ -7,11 +7,10 @@ import { canisterId } from 'declarations/pulse_backend/index.js';
 const network = process.env.DFX_NETWORK;
 const identityProvider =
   network === 'ic'
-    ? 'https://identity.ic0.app' // Mainnet
+    ? 'https://id.ai' // II 2.0 Mainnet
     : 'http://rdmx6-jaaaa-aaaaa-aaadq-cai.localhost:4943'; // Local
 
-// Reusable button component
-const Button = ({ onClick, children }) => <button onClick={onClick} className="p-2 bg-green-300 ">{children}</button>;
+const Button = ({ onClick, children }) => <button onClick={onClick} className="p-2 bg-green-300 m-2">{children}</button>;
 
 const AppInternet = () => {
   const [state, setState] = useState({
@@ -21,8 +20,8 @@ const AppInternet = () => {
     principal: 'Click "Whoami" to see your principal ID'
   });
 
-console.log(createActor)
-console.log(canisterId)
+// console.log(createActor)
+// console.log(canisterId)
 
 
   // Initialize auth client
@@ -75,7 +74,9 @@ console.log(canisterId)
   };
 
   return (
-    <div>
+    <div
+    className="bg-amber-400"
+    >
       <h1>Who Am I?</h1>
       <div id="info-box" className="info-box">
         <div className="info-content">
