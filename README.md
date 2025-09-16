@@ -1,8 +1,10 @@
 # Pulse — Creator Coins on the Internet Computer (ICP)
 
 <p align="center">
-  <img src="./src/pulse_frontend/public/pulse.png" alt="Pulse Banner" style="background: #34ebcc" width="400"/>
+  <img src="./docs/banner.png" alt="Pulse Banner" width="400"/>
 </p>
+
+---
 
 ## 🌐 Overview
 
@@ -10,129 +12,66 @@
 
 Pulse leverages:
 
-* **Motoko Canisters** for secure, on-chain token logic.
-* **Internet Identity** for seamless authentication.
-* **Chain Fusion** (ICP interoperability) for future cross-chain growth.
-* **React Frontend** for an interactive user experience.
-
-
----
-
-## ⚙️ How It Works
-
-1. **Creator Onboarding**
-
-   * Log in using **Internet Identity**.
-   * Register and create a personal token (with supply model: Fixed or Bonding Curve).
-
-2. **Fan Interaction**
-
-   * Fans log in with Internet Identity.
-   * Purchase creator tokens using ICP or cross-chain assets (BTC/ETH via Chain Fusion).
-   * Trade tokens in the Pulse marketplace.
-
-3. **Growth & Value**
-
-   * As fans buy, token demand rises, increasing token value.
-   * Owners (creators) can also purchase back their tokens — at market price — maintaining fairness.
-
-4. **Revenue Model**
-
-   * **Minting Fees:** A cut from every new token minted.
-   * **Transaction Fees:** A small percentage fee on all trades.
-   * **Optional Withdrawal Fees:** For converting tokens back into ICP or BTC/ETH.
+* ⚡ **Motoko Canisters** for secure, on-chain token logic.
+* 🔑 **Internet Identity** for seamless authentication.
+* 🔗 **Chain Fusion** (ICP interoperability) for cross-chain growth.
+* 🎨 **React Frontend** for an interactive user experience.
 
 ---
 
-## 🚀  Features
+## 🚀 Features
 
 * 🎨 **Custom Creator Tokens**: Influencers or brands can mint their own tokens.
 * 💱 **Buy, Sell & Trade**: Fans and supporters can trade tokens peer-to-peer.
 * 🔒 **On-Chain Security**: Built on ICP, ensuring decentralization and trust.
+* 🖼 **Branding Support**: Creators can upload or link a logo/banner (image URL). In MVP, this is stored in metadata. Future versions will use **IPFS** or **ICP asset canisters** for permanent decentralized storage.
 * 🧩 **Internet Identity Login**: Secure, passwordless login.
 * 💰 **Earnings Model**:
 
   * Platform fee for token creation.
   * Transaction fees for buys/sells.
-  * Transfer fees when tokens are sent peer-to-peer.
+  * Transfer fees for peer-to-peer token sends.
 
 ---
 
-## 🏗️ Tech Stack
+## 🎯 Use Cases
 
-* **Smart Contracts:** Motoko Canisters
-
-  * Token Ledger Canister (balances, transfers, minting)
-  * Marketplace Canister (buy/sell, bonding curve, trading fees)
-  * Registry Canister (metadata for creator tokens)
-* **Authentication:** Internet Identity
-* **Cross-chain:** Chain Fusion (BTC/ETH integrations)
-* **Frontend:** React + TailwindCSS + `@dfinity/agent`
-* **Hosting:** ICP Canisters (frontend + backend all on-chain)
+* 🌟 **Influencers**: Launch branded community tokens.
+* 🏢 **Businesses**: Tokenize loyalty programs or rewards.
+* 🎨 **Artists & Creators**: Offer collectible NFTs or fan tokens.
+* 📈 **Traders**: Engage in buying/selling creator tokens for profit.
 
 ---
 
-## Use Cases
+## 🏗️ Architecture
 
-* **Influencers**: Launch branded community tokens.
-* **Businesses**: Tokenize loyalty programs or rewards.
-* **Artists & Creators**: Offer collectible NFTs or fan tokens.
-* **Traders**: Engage in buying/selling creator tokens for profit.
-
----
-
-## Architecture
-
-* **Frontend**: React + Vite
+* **Frontend**: React + Vite + TailwindCSS
 * **Backend**: Motoko Canisters on ICP
 * **Auth**: Internet Identity
+* **Cross-chain**: Chain Fusion (BTC/ETH)
 * **Deployment**: DFX + Canister model
 
 ---
 
+## 🧩 Token Metadata Structure (Motoko)
 
-## 🔮 Future Vision
-
-* Expand beyond tokens into **creator NFTs**, event tickets, and gated fan experiences.
-* Provide creators with **analytics dashboards** for engagement tracking.
-* Enable **treasury pools and DAO governance** for creator-fan communities.
+```motoko
+type TokenMetadata = {
+  name : Text;
+  symbol : Text;
+  supply : Nat;
+  imageUrl : Text; // branding logo/banner provided by creator
+  creator : Principal;
+};
+```
 
 ---
 
-## 🤝 Contributing
-
-We welcome contributions from developers, designers, and blockchain enthusiasts. Submit a PR or open an issue to join the Pulse movement.
-
----
-
-## Quick Start
-
-Welcome to your new `pulse` project and to the Internet Computer development community. By default, creating a new project adds this README and some template files to your project directory. You can edit these template files to customize your project and to include your own code to speed up the development cycle.
-
-To get started, you might want to explore the project directory structure and the default configuration file. Working with this project in your development environment will not affect any production deployment or identity tokens.
-
-To learn more before you start working with `pulse`, see the following documentation available online:
-
-* [Quick Start](https://internetcomputer.org/docs/current/developer-docs/setup/deploy-locally)
-* [SDK Developer Tools](https://internetcomputer.org/docs/current/developer-docs/setup/install)
-* [Motoko Programming Language Guide](https://internetcomputer.org/docs/current/motoko/main/motoko)
-* [Motoko Language Quick Reference](https://internetcomputer.org/docs/current/motoko/main/language-manual)
-
-If you want to start working on your project right away, you might want to try the following commands:
+## ⚡ Quick Start
 
 ```bash
 cd pulse/
-dfx help
-dfx canister --help
-```
-
-### Running the Project Locally
-
-```bash
-# Start replica in background
 dfx start --background
-
-# Deploy canisters
 dfx deploy
 ```
 
@@ -142,41 +81,40 @@ App will be available at:
 http://localhost:4943?canisterId={asset_canister_id}
 ```
 
-If you modify your backend canister:
-
-```bash
-npm run generate
-```
-
-If you modify your frontend:
+For frontend development:
 
 ```bash
 npm start
 ```
 
-This will start at `http://localhost:8080`, proxying to the local replica.
-
-### Environment Notes
-
-When hosting frontend code outside DFX, ensure:
-
-* Set `DFX_NETWORK=ic` (if using Webpack).
-* Replace `process.env.DFX_NETWORK` manually or via `dfx.json`.
-* Alternatively, write your own `createActor` constructor.
-
 ---
 
-## Roadmap (MVP → Beyond)
+## 🛣️ Roadmap (MVP → Beyond)
 
-* ✅ Token creation module
+* ✅ Token creation module (with branding image URL)
 * ✅ Internet Identity integration
 * 🔄 Token trading marketplace
 * 🚀 Cross-chain interoperability via Chain Fusion
-* 📈 Analytics for creators
+* 📊 Analytics for creators
 * 💳 Fiat-to-token onramp (future)
+* 👥 DAO-style governance for creator-fan communities
 
 ---
 
-## License
+## 🔮 Future Vision
+
+* Expand beyond tokens into **creator NFTs**, event tickets, and gated fan experiences.
+* Provide creators with **analytics dashboards** for engagement tracking.
+* Enable **treasury pools and DAO governance**.
+
+---
+
+## 🤝 Contributing
+
+We welcome contributions from developers, designers, and blockchain enthusiasts. Submit a PR or open an issue to join the Pulse movement.
+
+---
+
+## 📜 License
 
 MIT © Pulse Team
