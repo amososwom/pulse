@@ -26,7 +26,6 @@ const CreatorDashboard = () => {
   const [selectedTab, setSelectedTab] = useState("overview");
   const [isTokenFormOpen, setIsTokenFormOpen] = useState(false);
 
-  // Update selected tab based on current route
   useEffect(() => {
     const path = location.pathname;
     if (path.includes('/tokens')) setSelectedTab('tokens');
@@ -36,8 +35,7 @@ const CreatorDashboard = () => {
     else setSelectedTab('overview');
   }, [location.pathname]);
 
-  // Handle tab change and update URL
-  const handleTabChange = (value: string) => {
+  const handleTabChange = (value) => {
     setSelectedTab(value);
     if (value === 'overview') {
       navigate('/creator');
@@ -45,8 +43,7 @@ const CreatorDashboard = () => {
       navigate(`/creator/${value}`);
     }
   };
-  
-  // Mock data - in real app, this would come from ICP canisters
+
   const [tokens] = useState([
     {
       id: '1',
@@ -113,7 +110,6 @@ const CreatorDashboard = () => {
       <Navigation />
       
       <div className="container mx-auto px-4 py-8">
-        {/* Header */}
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between mb-8">
           <div>
             <h1 className="text-3xl font-bold mb-2">Creator Dashboard</h1>
@@ -142,7 +138,6 @@ const CreatorDashboard = () => {
           </TabsList>
 
           <TabsContent value="overview" className="space-y-6">
-            {/* Stats Overview */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
               <Card className="pulse-card-gradient pulse-shadow border-border">
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -205,7 +200,6 @@ const CreatorDashboard = () => {
             </div>
 
             <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
-              {/* Your Tokens */}
               <div className="xl:col-span-2">
                 <Card className="pulse-card-gradient pulse-shadow border-border">
                   <CardHeader>
@@ -261,7 +255,6 @@ const CreatorDashboard = () => {
                 </Card>
               </div>
 
-              {/* Recent Activity */}
               <div>
                 <Card className="pulse-card-gradient pulse-shadow border-border">
                   <CardHeader>
@@ -352,7 +345,6 @@ const CreatorDashboard = () => {
         </Tabs>
       </div>
 
-      {/* Token Creation Form Modal */}
       <TokenCreationForm 
         open={isTokenFormOpen}
         onOpenChange={setIsTokenFormOpen}

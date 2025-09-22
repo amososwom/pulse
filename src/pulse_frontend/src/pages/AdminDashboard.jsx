@@ -1,10 +1,10 @@
 import { useState, useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
+import { Button } from "../components/ui/button";
+import { Badge } from "../components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
+import { Avatar, AvatarFallback, AvatarImage } from "../components/ui/avatar";
 import {
   Table,
   TableBody,
@@ -12,14 +12,7 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "@/components/ui/table";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+} from "../components/ui/table";
 import {
   Users,
   Coins,
@@ -34,8 +27,8 @@ import {
   ArrowUpRight,
   Download,
 } from "lucide-react";
-import { useAuth } from "@/hooks/useAuth";
-import Navigation from "@/components/Navigation";
+import { useAuth } from "../hooks/useAuth";
+import Navigation from "../components/Navigation";
 
 const AdminDashboard = () => {
   const { user } = useAuth();
@@ -43,7 +36,6 @@ const AdminDashboard = () => {
   const navigate = useNavigate();
   const [selectedTab, setSelectedTab] = useState("overview");
 
-  // Update selected tab based on current route
   useEffect(() => {
     const path = location.pathname;
     if (path.includes('/users')) setSelectedTab('users');
@@ -53,8 +45,7 @@ const AdminDashboard = () => {
     else setSelectedTab('overview');
   }, [location.pathname]);
 
-  // Handle tab change and update URL
-  const handleTabChange = (value: string) => {
+  const handleTabChange = (value) => {
     setSelectedTab(value);
     if (value === 'overview') {
       navigate('/admin');
@@ -62,8 +53,7 @@ const AdminDashboard = () => {
       navigate(`/admin/${value}`);
     }
   };
-  
-  // Mock data - in real app, this would come from ICP canisters
+
   const [platformStats] = useState({
     totalUsers: 12543,
     totalCreators: 1234,
@@ -144,7 +134,7 @@ const AdminDashboard = () => {
     },
   ]);
 
-  const getStatusColor = (status: string) => {
+  const getStatusColor = (status) => {
     switch (status) {
       case 'active':
       case 'verified':
@@ -161,9 +151,8 @@ const AdminDashboard = () => {
   return (
     <div className="min-h-screen bg-background">
       <Navigation />
-      
+
       <div className="container mx-auto px-4 py-8">
-        {/* Header */}
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between mb-8">
           <div>
             <h1 className="text-3xl font-bold mb-2">Admin Dashboard</h1>

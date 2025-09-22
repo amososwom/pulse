@@ -60,7 +60,7 @@ const Settings = () => {
 
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleSettingChange = (key: string, value: boolean | string) => {
+  const handleSettingChange = (key, value) => {
     setSettings(prev => ({ ...prev, [key]: value }));
   };
 

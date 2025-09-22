@@ -36,7 +36,7 @@ const UserDashboard = () => {
   }, [location.pathname]);
 
   // Handle tab change and update URL
-  const handleTabChange = (value: string) => {
+  const handleTabChange = (value) => {
     setSelectedTab(value);
     if (value === 'portfolio') {
       navigate('/dashboard');

@@ -44,7 +44,7 @@ const Profile = () => {
 
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleInputChange = (field: string, value: string) => {
+  const handleInputChange = (field, value) => {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 

@@ -20,8 +20,6 @@ const AppInternet = () => {
     principal: 'Click "Whoami" to see your principal ID'
   });
 
-// console.log(createActor)
-// console.log(canisterId)
 
 
   // Initialize auth client
