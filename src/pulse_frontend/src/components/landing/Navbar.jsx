@@ -85,7 +85,7 @@ export default function Navbar({ onGetStarted }) {
             <Button
               variant="outline"
               size="sm"
-              className="border-gray-300 text-gray-700 hover:bg-gray-50"
+              className="border-gray-300 text-white hover:bg-gray-50"
             >
               <Mail className="w-4 h-4 mr-2" />
               Contact

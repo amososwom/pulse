@@ -20,12 +20,15 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import Navigation from "@/components/Navigation";
+import CyberpunkTokenButton from "@/components/CyberpunkTokenButton";
+import TokenCreationForm from "@/components/TokenCreationForm";
 
 const UserDashboard = () => {
   const { user } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const [selectedTab, setSelectedTab] = useState("portfolio");
+  const [isTokenFormOpen, setIsTokenFormOpen] = useState(false);
 
   // Update selected tab based on current route
   useEffect(() => {
@@ -173,10 +176,16 @@ const UserDashboard = () => {
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input placeholder="Search tokens..." className="pl-10 w-64" />
             </div>
-            <Button className=" hover:opacity-90 pulse-transition bg-purple-600 ">
+            <Button 
+              onClick={() => setIsTokenFormOpen(true)}
+              className="md:hidden hover:opacity-90 pulse-transition bg-purple-600 ">
               <Bitcoin className="w-4 h-4 mr-2" />
               Create Tokens
             </Button>
+            <CyberpunkTokenButton
+              render={setIsTokenFormOpen}
+            
+            />
           </div>
         </div>
 
@@ -405,6 +414,11 @@ const UserDashboard = () => {
           </TabsContent>
         </Tabs>
       </div>
+
+            <TokenCreationForm 
+              open={isTokenFormOpen}
+              onOpenChange={setIsTokenFormOpen}
+            />
     </div>
   );
 };

@@ -5,24 +5,28 @@
       "type": "motoko"
     },
     "pulse_frontend": {
-      "dependencies": ["pulse_backend"],
-      "source": ["src/pulse_frontend/dist"],
+      "dependencies": [
+        "pulse_backend"
+      ],
+      "source": [
+        "src/pulse_frontend/dist"
+      ],
       "type": "assets",
       "workspace": "pulse_frontend"
     },
-        "internet_identity": {
-            "candid": "https://github.com/dfinity/internet-identity/releases/latest/download/internet_identity.did",
-            "frontend": {},
-            "init_arg": "(opt record { new_flow_origins = opt vec { \"http://rdmx6-jaaaa-aaaaa-aaadq-cai.localhost:4943\" } })",
-            "remote": {
-                "id": {
-                    "ic": "rdmx6-jaaaa-aaaaa-aaadq-cai"
-                }
-            },
-            "type": "custom",
-            "specified_id": "rdmx6-jaaaa-aaaaa-aaadq-cai",
-            "wasm": "https://github.com/dfinity/internet-identity/releases/latest/download/internet_identity_dev.wasm.gz"
+    "internet_identity": {
+      "candid": "https://github.com/dfinity/internet-identity/releases/latest/download/internet_identity.did",
+      "frontend": {},
+      "init_arg": "(opt record { new_flow_origins = opt vec { \"http://rdmx6-jaaaa-aaaaa-aaadq-cai.localhost:4943\" } })",
+      "remote": {
+        "id": {
+          "ic": "rdmx6-jaaaa-aaaaa-aaadq-cai"
         }
+      },
+      "type": "custom",
+      "specified_id": "rdmx6-jaaaa-aaaaa-aaadq-cai",
+      "wasm": "https://github.com/dfinity/internet-identity/releases/latest/download/internet_identity_dev.wasm.gz"
+    }
   },
   "defaults": {
     "build": {

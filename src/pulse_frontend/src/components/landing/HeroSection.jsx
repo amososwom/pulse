@@ -113,7 +113,7 @@ export default function HeroSection({ onGetStarted }) {
             
             <Button
               variant="outline"
-              className="border-2 border-slate-800 text-slate-800 hover:bg-slate-800 hover:text-white px-8 py-4 rounded-full text-lg font-semibold transition-all duration-300"
+              className="border-2 border-slate-800 text-white hover:bg-green-800 hover:text-white px-8 py-4 rounded-full text-lg font-semibold transition-all duration-300"
               size="lg"
             >
               <FileText className="mr-2 w-5 h-5" />

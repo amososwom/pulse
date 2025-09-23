@@ -160,45 +160,7 @@ function MainLanding() {
     }
   };
 
-  // Method 2: Using NFID SDK (Alternative approach - uncomment to use)
-  /*
-  const handleNFIDWithSDK = async () => {
-    setIsAuthenticating(true);
-    setAuthenticationMethod('nfid');
-    
-    try {
-      const authClient = await nfid.getDelegation({
-        targets: [],
-        derivationOrigin: window.location.origin,
-        ui: {
-          width: 500,
-          height: 700,
-          flow: "email-first",
-          hideGoogleAuth: true,
-          methods: ["email", "passkey"]
-        }
-      });
 
-      if (authClient) {
-        console.log("NFID authentication successful!", authClient);
-        setShowAuthModal(false);
-        alert("NFID authentication successful! Welcome to PULSE!");
-      }
-      
-    } catch (error) {
-      console.error("NFID authentication failed:", error);
-      
-      if (error.message.includes('User cancelled')) {
-        console.log("User cancelled authentication");
-      } else {
-        alert(`Authentication failed: ${error.message}`);
-      }
-    } finally {
-      setIsAuthenticating(false);
-      setAuthenticationMethod(null);
-    }
-  };
-  */
 
   // Method 3: Direct NFID Integration (Another alternative)
   const handleNFIDDirect = async () => {
