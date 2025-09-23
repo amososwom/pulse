@@ -1,8 +1,5 @@
-// backend/combined/main.mo
-// Single canister: multi-token ledger + marketplace (MVP)
-// - create_token(...) -> creates a new fungible token with metadata including logo_url
-// - transfer / approve / transferFrom -> standard token ops
-// - marketplace: sellers list (token_id, amount, price_token_id, price_amount), buyers purchase via approve+buy flow
+// backend/main.mo
+// Enhanced multi-token ledger with better error handling and Internet Identity support
 
 import Principal "mo:base/Principal";
 import Nat "mo:base/Nat";
@@ -13,6 +10,8 @@ import Time "mo:base/Time";
 import Debug "mo:base/Debug";
 import Option "mo:base/Option";
 import Array "mo:base/Array";
+import Text "mo:base/Text";
+import Result "mo:base/Result";
 
 persistent actor PulseMarket {
 
@@ -21,40 +20,68 @@ persistent actor PulseMarket {
   //
   public type TokenId = Nat;
   public type Tokens = Nat;
-
-  // Basic account = Principal (no subaccounts here for simplicity)
   public type Account = Principal;
 
-  // Approval record: owner approved spender to use up to allowance
+  // Enhanced error types for better error handling
+  public type CreateTokenError = {
+    #InvalidName;
+    #InvalidSymbol;
+    #InvalidSupply;
+    #AnonymousNotAllowed;
+    #InternalError : Text;
+  };
+
+  public type TransferError = {
+    #TokenNotFound;
+    #InsufficientBalance;
+    #SelfTransfer;
+    #InternalError : Text;
+  };
+
+  public type ApprovalError = {
+    #TokenNotFound;
+    #SelfApproval;
+    #InternalError : Text;
+  };
+
+  // Approval record with expiration support
   public type Approval = {
     tokenId : TokenId;
     owner : Account;
     spender : Account;
     allowance : Tokens;
     expires_at : ?Nat64;
+    created_at : Nat64;
   };
 
-  // Token metadata and storage
-  public type Token = {
-    id : TokenId;
+  // Enhanced token metadata
+  public type TokenMetadata = {
     name : Text;
     symbol : Text;
     decimals : Nat8;
-    minting_account : Account;
     total_supply : Tokens;
-    logo_url : ?Text;                 // optional URL for icon/image
-    balances : [ (Account, Tokens) ]; // small-map via array (MVP)
-    approvals : [ Approval ];         // approvals array
+    minting_account : Account;
+    logo_url : ?Text;
+    description : ?Text;
+    created_at : Nat64;
   };
 
-  // Marketplace listing (seller lists `amount` of token `tokenId` asking `price_amount` of currency token `price_tokenId`)
+  // Token with enhanced structure
+  public type Token = {
+    id : TokenId;
+    metadata : TokenMetadata;
+    balances : [(Account, Tokens)];
+    approvals : [Approval];
+  };
+
+  // Marketplace listing
   public type Listing = {
     id : Nat;
     tokenId : TokenId;
     seller : Account;
     amount : Tokens;
-    price_tokenId : TokenId;          // the token used as currency
-    price_amount_per_token : Tokens;  // price per item in units of price_token
+    price_tokenId : TokenId;
+    price_amount_per_token : Tokens;
     created_at : Nat64;
     active : Bool;
   };
@@ -62,306 +89,398 @@ persistent actor PulseMarket {
   //
   // State
   //
-  private var tokens : [ Token ] = [];
-  private var listings : [ Listing ] = [];
-  private var nextTokenId : TokenId = 0;
-  private var nextListingId : Nat = 0;
+  private stable var tokens : [Token] = [];
+  private stable var listings : [Listing] = [];
+  private stable var nextTokenId : TokenId = 0;
+  private stable var nextListingId : Nat = 0;
 
   //
-  // Helpers: find token by id
+  // Helper Functions
   //
-  func findTokenIndex(id : TokenId) : ?Nat {
+
+  // Validate text inputs
+  private func isValidName(name : Text) : Bool {
+    let size = Text.size(name);
+    size >= 2 and size <= 50
+  };
+
+  private func isValidSymbol(symbol : Text) : Bool {
+    let size = Text.size(symbol);
+    size >= 2 and size <= 10
+  };
+
+  // Find token by ID
+  private func findTokenIndex(id : TokenId) : ?Nat {
     var i : Nat = 0;
-    while (i < Array.size(tokens)) {
-      if (tokens[i].id == id) { return ?i };
+    for (token in tokens.vals()) {
+      if (token.id == id) return ?i;
       i += 1;
     };
     null
   };
 
-  func requireToken(id : TokenId) : Token {
-    switch (findTokenIndex(id)) {
-      case (?idx) tokens[idx];
-      case null Debug.trap("token not found");
-    }
-  };
-
-  //
-  // Balance helpers (per token)
-  // returns (indexInBalancesArray, currentBalance) where index may be Array.size(...) to indicate not found
-  //
-  func getBalanceRef(tokenIdx : Nat, who : Account) : (Nat, Tokens) {
-    let arr = tokens[tokenIdx].balances;
-    var i : Nat = 0;
-    while (i < Array.size(arr)) {
-      if (Principal.equal(arr[i].0, who)) { return (i, arr[i].1) };
-      i += 1;
-    };
-    (Array.size(arr), 0)
-  };
-
-  func setBalance(tokenIdx : Nat, who : Account, amount : Tokens) : () {
-    let (idx, _) = getBalanceRef(tokenIdx, who);
+  // Get balance for account in specific token
+  private func getBalance(tokenIdx : Nat, account : Account) : Tokens {
     let token = tokens[tokenIdx];
-    if (idx < Array.size(token.balances)) {
-      let newBalances = Array.tabulate<(Account, Tokens)>(Array.size(token.balances), func(i : Nat) : (Account, Tokens) {
-        if (i == idx) { (who, amount) } else { token.balances[i] }
-      });
-      let updatedToken = {
-        id = token.id;
-        name = token.name;
-        symbol = token.symbol;
-        decimals = token.decimals;
-        minting_account = token.minting_account;
-        total_supply = token.total_supply;
-        logo_url = token.logo_url;
-        balances = newBalances;
-        approvals = token.approvals;
-      };
-      tokens := Array.tabulate<Token>(Array.size(tokens), func(i : Nat) : Token {
-        if (i == tokenIdx) { updatedToken } else { tokens[i] }
-      });
+    for ((acc, balance) in token.balances.vals()) {
+      if (Principal.equal(acc, account)) return balance;
+    };
+    0
+  };
+
+  // Set balance for account in specific token
+  private func setBalance(tokenIdx : Nat, account : Account, amount : Tokens) {
+    let token = tokens[tokenIdx];
+    
+    // Find existing balance or create new entry
+    var found = false;
+    let newBalances = Array.tabulate<(Account, Tokens)>(
+      token.balances.size(),
+      func(i : Nat) : (Account, Tokens) {
+        if (Principal.equal(token.balances[i].0, account)) {
+          found := true;
+          (account, amount)
+        } else {
+          token.balances[i]
+        }
+      }
+    );
+    
+    let finalBalances = if (found) {
+      newBalances
     } else {
-      let updatedToken = {
-        id = token.id;
-        name = token.name;
-        symbol = token.symbol;
-        decimals = token.decimals;
-        minting_account = token.minting_account;
-        total_supply = token.total_supply;
-        logo_url = token.logo_url;
-        balances = Array.append(token.balances, [(who, amount)]);
-        approvals = token.approvals;
-      };
-      tokens := Array.tabulate<Token>(Array.size(tokens), func(i : Nat) : Token {
-        if (i == tokenIdx) { updatedToken } else { tokens[i] }
-      });
+      Array.append(newBalances, [(account, amount)])
     };
-  };
 
-  func addBalance(tokenIdx : Nat, who : Account, delta : Tokens) : () {
-    let (idx, cur) = getBalanceRef(tokenIdx, who);
-    let newVal = cur + delta;
-    setBalance(tokenIdx, who, newVal);
-  };
-
-  func subBalance(tokenIdx : Nat, who : Account, delta : Tokens) : Bool {
-    let (idx, cur) = getBalanceRef(tokenIdx, who);
-    if (cur < delta) { false } else {
-      setBalance(tokenIdx, who, cur - delta);
-      true
-    }
-  };
-
-  //
-  // Approval helpers
-  //
-  func findApprovalIndex(tokenIdx : Nat, owner : Account, spender : Account) : ?Nat {
-    var i : Nat = 0;
-    let arr = tokens[tokenIdx].approvals;
-    while (i < Array.size(arr)) {
-      if (arr[i].tokenId == tokens[tokenIdx].id
-          and Principal.equal(arr[i].owner, owner)
-          and Principal.equal(arr[i].spender, spender)) {
-        return ?i;
-      };
-      i += 1;
+    let updatedToken = {
+      id = token.id;
+      metadata = token.metadata;
+      balances = finalBalances;
+      approvals = token.approvals;
     };
-    null
+
+    tokens := Array.tabulate<Token>(tokens.size(), func(i : Nat) : Token {
+      if (i == tokenIdx) updatedToken else tokens[i]
+    });
   };
 
-  func getAllowance(tokenIdx : Nat, owner : Account, spender : Account) : Tokens {
-    switch (findApprovalIndex(tokenIdx, owner, spender)) {
-      case (?i) tokens[tokenIdx].approvals[i].allowance;
-      case null 0;
-    }
-  };
-
-  func setAllowance(tokenIdx : Nat, owner : Account, spender : Account, amt : Tokens) : () {
-    let token = tokens[tokenIdx];
-    switch (findApprovalIndex(tokenIdx, owner, spender)) {
-      case (?i) {
-        let newApprovals = Array.tabulate<Approval>(Array.size(token.approvals), func(j : Nat) : Approval {
-          if (j == i) {
-            {
-              tokenId = token.approvals[j].tokenId;
-              owner = token.approvals[j].owner;
-              spender = token.approvals[j].spender;
-              allowance = amt;
-              expires_at = token.approvals[j].expires_at;
-            }
-          } else {
-            token.approvals[j]
-          }
-        });
-        let updatedToken = {
-          id = token.id;
-          name = token.name;
-          symbol = token.symbol;
-          decimals = token.decimals;
-          minting_account = token.minting_account;
-          total_supply = token.total_supply;
-          logo_url = token.logo_url;
-          balances = token.balances;
-          approvals = newApprovals;
-        };
-        tokens := Array.tabulate<Token>(Array.size(tokens), func(k : Nat) : Token {
-          if (k == tokenIdx) { updatedToken } else { tokens[k] }
-        });
-      };
-      case null {
-        let newApproval = {
-          tokenId = token.id;
-          owner = owner;
-          spender = spender;
-          allowance = amt;
-          expires_at = null;
-        };
-        let updatedToken = {
-          id = token.id;
-          name = token.name;
-          symbol = token.symbol;
-          decimals = token.decimals;
-          minting_account = token.minting_account;
-          total_supply = token.total_supply;
-          logo_url = token.logo_url;
-          balances = token.balances;
-          approvals = Array.append(token.approvals, [newApproval]);
-        };
-        tokens := Array.tabulate<Token>(Array.size(tokens), func(k : Nat) : Token {
-          if (k == tokenIdx) { updatedToken } else { tokens[k] }
-        });
-      };
-    };
-  };
-
-  func decAllowance(tokenIdx : Nat, owner : Account, spender : Account, amt : Tokens) : Bool {
-    let cur = getAllowance(tokenIdx, owner, spender);
-    if (cur < amt) { false } else {
-      setAllowance(tokenIdx, owner, spender, cur - amt);
-      true
-    }
+  // Transfer tokens between accounts
+  private func transferTokens(tokenIdx : Nat, from : Account, to : Account, amount : Tokens) : Bool {
+    let fromBalance = getBalance(tokenIdx, from);
+    if (fromBalance < amount) return false;
+    
+    let toBalance = getBalance(tokenIdx, to);
+    setBalance(tokenIdx, from, fromBalance - amount);
+    setBalance(tokenIdx, to, toBalance + amount);
+    true
   };
 
   //
-  // Token API (multi-token)
+  // Public Token Functions
   //
 
-  // create_token: anyone can create a new token. Caller becomes minting account and receives initial_supply.
+  // Create a new token with enhanced validation
   public shared ({ caller }) func create_token(
-    token_name : Text,
-    token_symbol : Text,
+    name : Text,
+    symbol : Text,
     initial_supply : Tokens,
     decimals : Nat8,
     logo_url : ?Text
-  ) : async TokenId {
-    if (Principal.isAnonymous(caller)) { Debug.trap("anonymous cannot create token") };
-
-    let id = nextTokenId;
-    nextTokenId += 1;
-
-    let t : Token = {
-      id = id;
-      name = token_name;
-      symbol = token_symbol;
+  ) : async Result.Result<TokenId, CreateTokenError> {
+    
+    // Validation
+    if (Principal.isAnonymous(caller)) {
+      return #err(#AnonymousNotAllowed);
+    };
+    
+    if (not isValidName(name)) {
+      return #err(#InvalidName);
+    };
+    
+    if (not isValidSymbol(symbol)) {
+      return #err(#InvalidSymbol);
+    };
+    
+    if (initial_supply == 0) {
+      return #err(#InvalidSupply);
+    };
+    
+    // Create token metadata
+    let metadata : TokenMetadata = {
+      name = name;
+      symbol = symbol;
       decimals = decimals;
-      minting_account = caller;
       total_supply = initial_supply;
+      minting_account = caller;
       logo_url = logo_url;
-      balances = if (initial_supply > 0) { [(caller, initial_supply)] } else { [] };
+      description = null;
+      created_at = Nat64.fromNat(Int.abs(Time.now()));
+    };
+    
+    // Create token with initial balance for creator
+    let newToken : Token = {
+      id = nextTokenId;
+      metadata = metadata;
+      balances = if (initial_supply > 0) [(caller, initial_supply)] else [];
       approvals = [];
     };
-
-    tokens := Array.append(tokens, [t]);
-    id
+    
+    // Add to tokens array
+    tokens := Array.append(tokens, [newToken]);
+    let tokenId = nextTokenId;
+    nextTokenId += 1;
+    
+    #ok(tokenId)
   };
 
-  // basic queries
+  // Get token metadata
   public query func token_metadata(tokenId : TokenId) : async ?(Text, Text, Nat8, ?Text) {
     switch (findTokenIndex(tokenId)) {
-      case (?i) ?(tokens[i].name, tokens[i].symbol, tokens[i].decimals, tokens[i].logo_url);
+      case (?idx) {
+        let token = tokens[idx];
+        ?(token.metadata.name, token.metadata.symbol, token.metadata.decimals, token.metadata.logo_url)
+      };
       case null null;
     }
   };
 
-  public query func balance_of(tokenId : TokenId, who : Account) : async Tokens {
+  // Get complete token information
+  public query func token_info(tokenId : TokenId) : async ?{
+    name : Text;
+    symbol : Text;
+    decimals : Nat8;
+    total_supply : Tokens;
+    minting_account : Account;
+    logo_url : ?Text;
+  } {
     switch (findTokenIndex(tokenId)) {
-      case (?i) {
-        let (_, bal) = getBalanceRef(i, who);
-        bal
+      case (?idx) {
+        let token = tokens[idx];
+        ?{
+          name = token.metadata.name;
+          symbol = token.metadata.symbol;
+          decimals = token.metadata.decimals;
+          total_supply = token.metadata.total_supply;
+          minting_account = token.metadata.minting_account;
+          logo_url = token.metadata.logo_url;
+        }
       };
+      case null null;
+    }
+  };
+
+  // Get balance of account for specific token
+  public query func balance_of(tokenId : TokenId, account : Account) : async Tokens {
+    switch (findTokenIndex(tokenId)) {
+      case (?idx) getBalance(idx, account);
       case null 0;
     }
   };
 
+  // Get total supply of token
   public query func total_supply(tokenId : TokenId) : async Tokens {
     switch (findTokenIndex(tokenId)) {
-      case (?i) tokens[i].total_supply;
+      case (?idx) tokens[idx].metadata.total_supply;
       case null 0;
     }
   };
 
-  // send / transfer: caller sends their tokens to `to`
-  public shared ({ caller }) func transfer(tokenId : TokenId, to : Account, amount : Tokens) : async Bool {
+  // Transfer tokens from caller to recipient
+  public shared ({ caller }) func transfer(
+    tokenId : TokenId, 
+    to : Account, 
+    amount : Tokens
+  ) : async Result.Result<Bool, TransferError> {
+    
+    if (Principal.equal(caller, to)) {
+      return #err(#SelfTransfer);
+    };
+
     switch (findTokenIndex(tokenId)) {
-      case (?i) {
-        if (not subBalance(i, caller, amount)) { return false };
-        addBalance(i, to, amount);
-        true
+      case (?idx) {
+        if (transferTokens(idx, caller, to, amount)) {
+          #ok(true)
+        } else {
+          #err(#InsufficientBalance)
+        }
       };
-      case null false;
+      case null #err(#TokenNotFound);
     }
   };
 
-  // approve: owner (caller) allows spender to spend up to allowance
-  public shared ({ caller }) func approve(tokenId : TokenId, spender : Account, allowance : Tokens) : async Bool {
+  // Approve spender to use tokens on behalf of caller
+  public shared ({ caller }) func approve(
+    tokenId : TokenId,
+    spender : Account,
+    allowance : Tokens
+  ) : async Result.Result<Bool, ApprovalError> {
+    
+    if (Principal.equal(caller, spender)) {
+      return #err(#SelfApproval);
+    };
+
     switch (findTokenIndex(tokenId)) {
-      case (?i) {
-        setAllowance(i, caller, spender, allowance);
-        true
+      case (?idx) {
+        let token = tokens[idx];
+        
+        // Find existing approval or create new one
+        var found = false;
+        let newApprovals = Array.tabulate<Approval>(
+          token.approvals.size(),
+          func(i : Nat) : Approval {
+            let approval = token.approvals[i];
+            if (approval.tokenId == tokenId and 
+                Principal.equal(approval.owner, caller) and 
+                Principal.equal(approval.spender, spender)) {
+              found := true;
+              {
+                tokenId = approval.tokenId;
+                owner = approval.owner;
+                spender = approval.spender;
+                allowance = allowance;
+                expires_at = approval.expires_at;
+                created_at = approval.created_at;
+              }
+            } else {
+              approval
+            }
+          }
+        );
+
+        let finalApprovals = if (found) {
+          newApprovals
+        } else {
+          Array.append(newApprovals, [{
+            tokenId = tokenId;
+            owner = caller;
+            spender = spender;
+            allowance = allowance;
+            expires_at = null;
+            created_at = Nat64.fromNat(Int.abs(Time.now()));
+          }])
+        };
+
+        let updatedToken = {
+          id = token.id;
+          metadata = token.metadata;
+          balances = token.balances;
+          approvals = finalApprovals;
+        };
+
+        tokens := Array.tabulate<Token>(tokens.size(), func(i : Nat) : Token {
+          if (i == idx) updatedToken else tokens[i]
+        });
+
+        #ok(true)
       };
-      case null false;
+      case null #err(#TokenNotFound);
     }
   };
 
-  // transferFrom: spender (caller) moves tokens from owner -> recipient using allowance
-  public shared ({ caller }) func transferFrom(tokenId : TokenId, owner : Account, recipient : Account, amount : Tokens) : async Bool {
+  // Transfer tokens from owner to recipient using allowance
+  public shared ({ caller }) func transferFrom(
+    tokenId : TokenId,
+    owner : Account,
+    recipient : Account,
+    amount : Tokens
+  ) : async Result.Result<Bool, TransferError> {
+    
     switch (findTokenIndex(tokenId)) {
-      case (?i) {
-        // if caller is owner, allow direct debit (same as transfer)
+      case (?idx) {
+        // If caller is owner, allow direct transfer
         if (Principal.equal(caller, owner)) {
-          if (not subBalance(i, owner, amount)) { return false };
-          addBalance(i, recipient, amount);
-          return true;
+          if (transferTokens(idx, owner, recipient, amount)) {
+            return #ok(true);
+          } else {
+            return #err(#InsufficientBalance);
+          }
         };
-        // else need allowance
-        if (not decAllowance(i, owner, caller, amount)) { return false };
-        if (not subBalance(i, owner, amount)) {
-          // revert allowance if debit fails
-          let current = getAllowance(i, owner, caller);
-          setAllowance(i, owner, caller, current + amount);
-          return false;
+
+        // Check and update allowance
+        let token = tokens[idx];
+        var allowanceFound = false;
+        var currentAllowance : Tokens = 0;
+        
+        for (approval in token.approvals.vals()) {
+          if (approval.tokenId == tokenId and
+              Principal.equal(approval.owner, owner) and
+              Principal.equal(approval.spender, caller)) {
+            allowanceFound := true;
+            currentAllowance := approval.allowance;
+          };
         };
-        addBalance(i, recipient, amount);
-        true
+
+        if (not allowanceFound or currentAllowance < amount) {
+          return #err(#InsufficientBalance);
+        };
+
+        // Execute transfer
+        if (not transferTokens(idx, owner, recipient, amount)) {
+          return #err(#InsufficientBalance);
+        };
+
+        // Update allowance
+        let newApprovals = Array.tabulate<Approval>(
+          token.approvals.size(),
+          func(i : Nat) : Approval {
+            let approval = token.approvals[i];
+            if (approval.tokenId == tokenId and
+                Principal.equal(approval.owner, owner) and
+                Principal.equal(approval.spender, caller)) {
+              {
+                tokenId = approval.tokenId;
+                owner = approval.owner;
+                spender = approval.spender;
+                allowance = if (approval.allowance >= amount) {
+                  approval.allowance - amount
+                } else {
+                  0
+                };
+                expires_at = approval.expires_at;
+                created_at = approval.created_at;
+              }
+            } else {
+              approval
+            }
+          }
+        );
+
+        let updatedToken = {
+          id = token.id;
+          metadata = token.metadata;
+          balances = token.balances;
+          approvals = newApprovals;
+        };
+
+        tokens := Array.tabulate<Token>(tokens.size(), func(i : Nat) : Token {
+          if (i == idx) updatedToken else tokens[i]
+        });
+
+        #ok(true)
       };
-      case null false;
+      case null #err(#TokenNotFound);
     }
   };
 
   //
-  // Marketplace API
+  // Marketplace Functions
   //
-  // Seller lists `amount` of token `tokenId` asking price in tokens of `price_tokenId`.
-  // Buyer must call approve(price_tokenId, marketplace_canister, total_price) before buy.
-  //
-  public shared ({ caller }) func create_listing(tokenId : TokenId, amount : Tokens, price_tokenId : TokenId, price_amount_per_token : Tokens) : async Nat {
-    // require seller to own the amount (simple check)
+
+  // Create a listing to sell tokens
+  public shared ({ caller }) func create_listing(
+    tokenId : TokenId,
+    amount : Tokens,
+    price_tokenId : TokenId,
+    price_amount_per_token : Tokens
+  ) : async Result.Result<Nat, Text> {
+    
     switch (findTokenIndex(tokenId)) {
-      case (?ti) {
-        let (_, bal) = getBalanceRef(ti, caller);
-        if (bal < amount) { Debug.trap("insufficient token balance to list") };
-        // we use allowance/transferFrom model for sale (seller must approve marketplace)
+      case (?idx) {
+        let balance = getBalance(idx, caller);
+        if (balance < amount) {
+          return #err("Insufficient token balance to create listing");
+        };
+
         let listing : Listing = {
           id = nextListingId;
           tokenId = tokenId;
@@ -372,160 +491,189 @@ persistent actor PulseMarket {
           created_at = Nat64.fromNat(Int.abs(Time.now()));
           active = true;
         };
+
         listings := Array.append(listings, [listing]);
+        let listingId = nextListingId;
         nextListingId += 1;
-        listing.id
+        #ok(listingId)
       };
-      case null Debug.trap("token not found");
+      case null #err("Token not found");
     }
   };
 
-  // buyer executes purchase: marketplace moves price_token from buyer -> seller, and token from seller -> buyer
-  // buyer must have approved marketplace to spend the total price on price_token
-  public shared ({ caller }) func buy(listingId : Nat, amount_to_buy : Tokens) : async Bool {
-    // find listing index
-    var liIdx : ?Nat = null;
+  // Buy tokens from a listing
+  public shared ({ caller }) func buy(
+    listingId : Nat,
+    amount_to_buy : Tokens
+  ) : async Result.Result<Bool, Text> {
+    
+    // Find listing
+    var listingIdx : ?Nat = null;
     var i : Nat = 0;
-    label findLoop while (i < Array.size(listings)) {
-      if (listings[i].id == listingId) { 
-        liIdx := ?i; 
-        break findLoop;
+    for (listing in listings.vals()) {
+      if (listing.id == listingId) {
+        listingIdx := ?i;
       };
       i += 1;
     };
 
-    switch (liIdx) {
-      case null { Debug.trap("listing not found") };
+    switch (listingIdx) {
+      case null #err("Listing not found");
       case (?idx) {
-        let l = listings[idx];
-        if (not l.active) { Debug.trap("listing inactive") };
-        if (amount_to_buy > l.amount) { Debug.trap("not enough listed amount") };
-
-        // compute total price in price_token units
-        let total_price : Tokens = amount_to_buy * l.price_amount_per_token;
-
-        // step 1: pull price_token from buyer -> seller
-        let okPrice = await transferFrom(l.price_tokenId, caller, l.seller, total_price);
-        if (not okPrice) { Debug.trap("price payment failed: ensure you approved marketplace and have funds") };
-
-        // step 2: transfer sold token from seller -> buyer
-        let okToken = await transferFrom(l.tokenId, l.seller, caller, amount_to_buy);
-        if (not okToken) {
-          // attempt to refund buyer
-          ignore await transfer(l.price_tokenId, caller, total_price);
-          Debug.trap("token transfer failed: seller didn't approve marketplace or has insufficient balance");
-        };
-
-        // update listing - create new listing with updated values
-        let newAmount = l.amount - amount_to_buy;
-        let updatedListing = {
-          id = l.id;
-          tokenId = l.tokenId;
-          seller = l.seller;
-          amount = newAmount;
-          price_tokenId = l.price_tokenId;
-          price_amount_per_token = l.price_amount_per_token;
-          created_at = l.created_at;
-          active = if (newAmount == 0) { false } else { true };
+        let listing = listings[idx];
+        
+        if (not listing.active) {
+          return #err("Listing is not active");
         };
         
-        listings := Array.tabulate<Listing>(Array.size(listings), func(j : Nat) : Listing {
-          if (j == idx) { updatedListing } else { listings[j] }
-        });
+        if (amount_to_buy > listing.amount) {
+          return #err("Insufficient amount available in listing");
+        };
 
-        true
-      }
+        let total_price = amount_to_buy * listing.price_amount_per_token;
+
+        // Transfer price tokens from buyer to seller
+        switch (await transferFrom(listing.price_tokenId, caller, listing.seller, total_price)) {
+          case (#err(_)) #err("Payment failed - ensure you have approved the marketplace and have sufficient funds");
+          case (#ok(_)) {
+            // Transfer sold tokens from seller to buyer
+            switch (await transferFrom(listing.tokenId, listing.seller, caller, amount_to_buy)) {
+              case (#err(_)) {
+                // Try to refund buyer
+                ignore await transfer(listing.price_tokenId, caller, total_price);
+                #err("Token transfer failed - seller may not have approved marketplace")
+              };
+              case (#ok(_)) {
+                // Update listing
+                let newAmount = listing.amount - amount_to_buy;
+                let updatedListing = {
+                  id = listing.id;
+                  tokenId = listing.tokenId;
+                  seller = listing.seller;
+                  amount = newAmount;
+                  price_tokenId = listing.price_tokenId;
+                  price_amount_per_token = listing.price_amount_per_token;
+                  created_at = listing.created_at;
+                  active = if (newAmount == 0) false else true;
+                };
+
+                listings := Array.tabulate<Listing>(listings.size(), func(j : Nat) : Listing {
+                  if (j == idx) updatedListing else listings[j]
+                });
+
+                #ok(true)
+              };
+            }
+          };
+        }
+      };
     }
   };
 
-  // Seller or owner can cancel a listing
-  public shared ({ caller }) func cancel_listing(listingId : Nat) : async Bool {
-    var liIdx : ?Nat = null;
+  // Cancel a listing
+  public shared ({ caller }) func cancel_listing(listingId : Nat) : async Result.Result<Bool, Text> {
+    var listingIdx : ?Nat = null;
     var i : Nat = 0;
-    label findLoop while (i < Array.size(listings)) {
-      if (listings[i].id == listingId) { 
-        liIdx := ?i; 
-        break findLoop;
+    for (listing in listings.vals()) {
+      if (listing.id == listingId) {
+        listingIdx := ?i;
       };
       i += 1;
     };
-    
-    switch (liIdx) {
-      case null Debug.trap("listing not found");
+
+    switch (listingIdx) {
+      case null #err("Listing not found");
       case (?idx) {
-        if (not Principal.equal(listings[idx].seller, caller)) { Debug.trap("only seller can cancel") };
-        let l = listings[idx];
+        let listing = listings[idx];
+        if (not Principal.equal(listing.seller, caller)) {
+          return #err("Only seller can cancel listing");
+        };
+
         let updatedListing = {
-          id = l.id;
-          tokenId = l.tokenId;
-          seller = l.seller;
-          amount = l.amount;
-          price_tokenId = l.price_tokenId;
-          price_amount_per_token = l.price_amount_per_token;
-          created_at = l.created_at;
+          id = listing.id;
+          tokenId = listing.tokenId;
+          seller = listing.seller;
+          amount = listing.amount;
+          price_tokenId = listing.price_tokenId;
+          price_amount_per_token = listing.price_amount_per_token;
+          created_at = listing.created_at;
           active = false;
         };
-        listings := Array.tabulate<Listing>(Array.size(listings), func(j : Nat) : Listing {
-          if (j == idx) { updatedListing } else { listings[j] }
+
+        listings := Array.tabulate<Listing>(listings.size(), func(j : Nat) : Listing {
+          if (j == idx) updatedListing else listings[j]
         });
-        true
-      }
+
+        #ok(true)
+      };
     }
   };
 
-  // Query listing
+  //
+  // Query Functions
+  //
+
+  // Get caller's principal
+  public query (message) func whoami() : async Principal {
+    message.caller
+  };
+
+  // Get all token IDs
+  public query func all_tokens() : async [TokenId] {
+    Array.map<Token, TokenId>(tokens, func(token : Token) : TokenId { token.id })
+  };
+
+  // Get listing information
   public query func get_listing(listingId : Nat) : async ?Listing {
-    var i : Nat = 0;
-    while (i < Array.size(listings)) {
-      if (listings[i].id == listingId) return ?listings[i];
-      i += 1;
+    for (listing in listings.vals()) {
+      if (listing.id == listingId) return ?listing;
     };
     null
   };
 
-  public query func list_count() : async Nat {
-    Array.size(listings)
+  // Get all active listings
+  public query func get_active_listings() : async [Listing] {
+    Array.filter<Listing>(listings, func(listing : Listing) : Bool { listing.active })
   };
 
-  // Utility: list token ids
-  public query func all_tokens() : async [ TokenId ] {
-    Array.map<Token, TokenId>(tokens, func(token : Token) : TokenId { token.id })
+  // Get listings for a specific token
+  public query func get_token_listings(tokenId : TokenId) : async [Listing] {
+    Array.filter<Listing>(listings, func(listing : Listing) : Bool { 
+      listing.active and listing.tokenId == tokenId 
+    })
   };
 
-  // Utility: token info (including logo_url) for UI
-  public query func token_info(tokenId : TokenId) : async ?{
-    name : Text;
-    symbol : Text;
-    decimals : Nat8;
-    total_supply : Tokens;
-    minting_account : Account;
-    logo_url : ?Text;
-  } {
-    switch (findTokenIndex(tokenId)) {
-      case (?i) {
-        ?{
-          name = tokens[i].name;
-          symbol = tokens[i].symbol;
-          decimals = tokens[i].decimals;
-          total_supply = tokens[i].total_supply;
-          minting_account = tokens[i].minting_account;
-          logo_url = tokens[i].logo_url;
-        }
+  // Get user's tokens (tokens they have balance in)
+  public query func get_user_tokens(user : Account) : async [(TokenId, Tokens)] {
+    var result : [(TokenId, Tokens)] = [];
+    for (token in tokens.vals()) {
+      let balance = getBalance_helper(token, user);
+      if (balance > 0) {
+        result := Array.append(result, [(token.id, balance)]);
       };
-      case null null;
+    };
+    result
+  };
+
+  // Helper function for get_user_tokens
+  private func getBalance_helper(token : Token, account : Account) : Tokens {
+    for ((acc, balance) in token.balances.vals()) {
+      if (Principal.equal(acc, account)) return balance;
+    };
+    0
+  };
+
+  // Get platform statistics
+  public query func get_stats() : async {
+    total_tokens : Nat;
+    total_listings : Nat;
+    active_listings : Nat;
+  } {
+    let active_count = Array.filter<Listing>(listings, func(l : Listing) : Bool { l.active }).size();
+    {
+      total_tokens = tokens.size();
+      total_listings = listings.size();
+      active_listings = active_count;
     }
   };
-
-  public query (message) func whoami() : async Principal {
-    message.caller;
-  };
-
-  //
-  // Notes:
-  // - This is an MVP-friendly single-canister approach. For production:
-  //   * Replace simple array maps with more scalable storage structures (Trie, stable memory)
-  //   * Add subaccount support
-  //   * Add robust error codes instead of Debug.trap
-  //   * Integrate with the official ICP ICRC-1 ledger for ICP payments if you want ICP as currency
-  //
-};
+}

@@ -1,32 +1,91 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { AuthClient } from '@dfinity/auth-client';
-import { createActor } from 'declarations/pulse_backend';
-import { canisterId } from 'declarations/pulse_backend/index.js';
+import { Actor, HttpAgent } from '@dfinity/agent';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Shield, Zap, Users, TrendingUp, AlertCircle } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 
-const network = process.env.DFX_NETWORK;
-const identityProvider =
-  network === 'ic'
-    ? 'https://identity.ic0.app' // II 2.0 Mainnet
-    : 'http://rdmx6-jaaaa-aaaaa-aaadq-cai.localhost:4943'; // Local
+// Backend canister interface - Updated to match your Motoko backend
+const idlFactory = ({ IDL }) => {
+  const TokenId = IDL.Nat;
+  const Tokens = IDL.Nat;
+  const Account = IDL.Principal;
+  
+  const CreateTokenError = IDL.Variant({
+    'InvalidName': IDL.Null,
+    'InvalidSymbol': IDL.Null,
+    'InvalidSupply': IDL.Null,
+    'AnonymousNotAllowed': IDL.Null,
+    'InternalError': IDL.Text,
+  });
+
+  const CreateTokenResult = IDL.Variant({
+    'ok': TokenId,
+    'err': CreateTokenError,
+  });
+  
+  return IDL.Service({
+    'create_token': IDL.Func(
+      [IDL.Text, IDL.Text, Tokens, IDL.Nat8, IDL.Opt(IDL.Text)],
+      [CreateTokenResult],
+      [],
+    ),
+    'whoami': IDL.Func([], [IDL.Principal], ['query']),
+    'get_user_tokens': IDL.Func([Account], [IDL.Vec(IDL.Tuple(TokenId, Tokens))], ['query']),
+    'token_info': IDL.Func(
+      [TokenId],
+      [IDL.Opt(IDL.Record({
+        'name': IDL.Text,
+        'symbol': IDL.Text,
+        'decimals': IDL.Nat8,
+        'total_supply': Tokens,
+        'minting_account': Account,
+        'logo_url': IDL.Opt(IDL.Text),
+      }))],
+      ['query'],
+    ),
+    'get_stats': IDL.Func([], [IDL.Record({
+      'total_tokens': IDL.Nat,
+      'total_listings': IDL.Nat,
+      'active_listings': IDL.Nat,
+    })], ['query']),
+    'balance_of': IDL.Func([TokenId, Account], [Tokens], ['query']),
+  });
+};
+
+// Environment configuration
+const getConfig = () => {
+  const isDevelopment = process.env.NODE_ENV === 'development';
+  const network = process.env.DFX_NETWORK || (isDevelopment ? 'local' : 'ic');
+  
+  return {
+    network,
+    host: network === 'ic' ? 'https://ic0.app' : 'http://localhost:4943',
+    identityProvider: network === 'ic' 
+      ? 'https://identity.ic0.app'
+      : 'http://rdmx6-jaaaa-aaaaa-aaadq-cai.localhost:4943',
+    backendCanisterId: network === 'ic'
+      ? process.env.REACT_APP_PULSE_BACKEND_CANISTER_ID
+      : 'uxrrr-q7777-77774-qaaaq-cai', // Your local canister ID
+  };
+};
 
 const Login = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [authState, setAuthState] = useState({
-    actor: undefined,
-    authClient: undefined,
+    authClient: null,
+    actor: null,
     isAuthenticated: false,
     principal: null
   });
   
   const navigate = useNavigate();
-  const { login } = useAuth();
+  const { login, logout } = useAuth();
+  const config = getConfig();
 
   // Initialize auth client on component mount
   useEffect(() => {
@@ -36,24 +95,23 @@ const Login = () => {
   const initializeAuthClient = async () => {
     try {
       const authClient = await AuthClient.create();
-      const identity = authClient.getIdentity();
-      const actor = createActor(canisterId, {
-        agentOptions: {
-          identity
-        }
-      });
       const isAuthenticated = await authClient.isAuthenticated();
+      const identity = authClient.getIdentity();
+      const principal = identity.getPrincipal();
+
+      // Create actor with current identity
+      const actor = await createActor(identity);
 
       setAuthState({
-        actor,
         authClient,
+        actor,
         isAuthenticated,
-        principal: identity.getPrincipal().toString()
+        principal: principal.toString()
       });
 
       // If already authenticated, auto-login
-      if (isAuthenticated) {
-        handleSuccessfulAuth(identity.getPrincipal().toString());
+      if (isAuthenticated && !principal.isAnonymous()) {
+        await handleSuccessfulAuth(principal.toString(), actor);
       }
     } catch (err) {
       console.error('Failed to initialize auth client:', err);
@@ -61,36 +119,66 @@ const Login = () => {
     }
   };
 
-  const handleSuccessfulAuth = async (principal) => {
+  const createActor = async (identity) => {
     try {
-      // Get additional user info from your backend if needed
-      const whoami = await authState.actor?.whoami();
+      const agent = new HttpAgent({
+        identity,
+        host: config.host
+      });
+
+      // Fetch root key for local development
+      if (config.network !== 'ic') {
+        await agent.fetchRootKey();
+      }
+
+      return Actor.createActor(idlFactory, {
+        agent,
+        canisterId: config.backendCanisterId,
+      });
+    } catch (err) {
+      console.error('Failed to create actor:', err);
+      throw err;
+    }
+  };
+
+  const handleSuccessfulAuth = async (principal, actor) => {
+    try {
+      // Test backend connection
+      const whoami = await actor.whoami();
+      console.log('Connected to backend as:', whoami.toString());
+
+      // Get user's tokens to determine user type
+      const userTokens = await actor.get_user_tokens(whoami);
+      const userType = userTokens.length > 0 ? 'creator' : 'user';
       
-      // Determine user type based on your app logic
-      // This is a placeholder - you should implement your own logic
-      const userType = await determineUserType(principal);
-      
+      // Login with auth provider
       login({
         id: principal,
         principal: principal,
         type: userType,
         name: `User ${principal.slice(0, 8)}...`,
-        avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${principal}`
+        avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${principal}`,
+        actor: actor, // Store actor in auth context
+        isConnectedToBackend: true
       });
       
       // Navigate based on user type
       navigate(userType === 'creator' ? '/creator' : '/dashboard');
     } catch (err) {
       console.error('Error during successful auth handling:', err);
-      setError('Failed to complete authentication');
+      setError('Connected to Internet Identity but failed to connect to backend');
+      
+      // Still login but without backend connection
+      login({
+        id: principal,
+        principal: principal,
+        type: 'user',
+        name: `User ${principal.slice(0, 8)}...`,
+        avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${principal}`,
+        actor: null,
+        isConnectedToBackend: false
+      });
     }
-  };
-
-  // Placeholder function - implement your own user type determination logic
-  const determineUserType = async (principal) => {
-    // You could check your backend for user roles, check for specific principals, etc.
-    // For now, we'll use a simple random assignment as in the original
-    return Math.random() > 0.5 ? 'creator' : 'user';
   };
 
   const handleInternetIdentityLogin = async () => {
@@ -104,17 +192,35 @@ const Login = () => {
     
     try {
       await authState.authClient.login({
-        identityProvider,
+        identityProvider: config.identityProvider,
+        maxTimeToLive: BigInt(7 * 24 * 60 * 60 * 1000 * 1000 * 1000), // 7 days
         onSuccess: async () => {
-          // Update the auth state
-          await initializeAuthClient();
-          
-          // Get the new principal
-          const identity = authState.authClient.getIdentity();
-          const principal = identity.getPrincipal().toString();
-          
-          await handleSuccessfulAuth(principal);
-          setIsLoading(false);
+          try {
+            // Reinitialize with new identity
+            const identity = authState.authClient.getIdentity();
+            const principal = identity.getPrincipal();
+            
+            if (principal.isAnonymous()) {
+              throw new Error('Authentication failed - received anonymous principal');
+            }
+
+            // Create new actor with authenticated identity
+            const actor = await createActor(identity);
+            
+            setAuthState(prev => ({
+              ...prev,
+              actor,
+              isAuthenticated: true,
+              principal: principal.toString()
+            }));
+            
+            await handleSuccessfulAuth(principal.toString(), actor);
+          } catch (err) {
+            console.error('Post-login setup failed:', err);
+            setError('Login succeeded but failed to initialize backend connection');
+          } finally {
+            setIsLoading(false);
+          }
         },
         onError: (error) => {
           console.error('Login failed:', error);
@@ -130,10 +236,20 @@ const Login = () => {
   };
 
   const handleLogout = async () => {
-    if (authState.authClient) {
-      await authState.authClient.logout();
+    try {
+      if (authState.authClient) {
+        await authState.authClient.logout();
+      }
+      logout();
+      setAuthState({
+        authClient: null,
+        actor: null,
+        isAuthenticated: false,
+        principal: null
+      });
       await initializeAuthClient();
-      // You might also want to call your useAuth logout here
+    } catch (err) {
+      console.error('Logout error:', err);
     }
   };
 
@@ -143,7 +259,9 @@ const Login = () => {
       principal: 'admin-principal-12345',
       type: 'admin',
       name: 'Admin User',
-      avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=admin`
+      avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=admin`,
+      actor: null,
+      isConnectedToBackend: false
     });
     navigate('/admin');
   };
@@ -160,6 +278,9 @@ const Login = () => {
           </div>
           <p className="text-muted-foreground">
             Sign in to your creator economy platform
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Network: {config.network} | Backend: {config.backendCanisterId || 'Not configured'}
           </p>
         </div>
 
@@ -214,6 +335,9 @@ const Login = () => {
                   </p>
                   <p className="text-xs text-muted-foreground mt-1">
                     Principal: {authState.principal?.slice(0, 20)}...
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Backend: {authState.actor ? '✓ Connected' : '✗ Disconnected'}
                   </p>
                 </div>
                 <Button 
