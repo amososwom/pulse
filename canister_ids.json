@@ -1,5 +1,11 @@
 {
   "pulse_backend": {
     "ic": "idct5-iyaaa-aaaab-ab5ya-cai"
+  },
+  "pulse_frontend": {
+    "ic": "z4fll-sqaaa-aaaab-ab6rq-cai"
+  },
+  "wallet": {
+    "ic": "zod4s-6aaaa-aaaab-ab6sq-cai"
   }
 }

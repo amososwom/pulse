@@ -26,6 +26,11 @@
       "type": "custom",
       "specified_id": "rdmx6-jaaaa-aaaaa-aaadq-cai",
       "wasm": "https://github.com/dfinity/internet-identity/releases/latest/download/internet_identity_dev.wasm.gz"
+    },
+    "wallet": {
+      "type": "custom",
+      "candid": "wallet.did",
+      "wasm": "wallet.wasm"
     }
   },
   "defaults": {
