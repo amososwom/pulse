@@ -363,7 +363,7 @@ const updateActor = async (actor) => {
       isDevelopment,
       network,
       canisterId: network === 'ic' 
-        ? process.env.REACT_APP_PULSE_BACKEND_CANISTER_ID 
+        ? process.env.REACT_APP_PULSE_BACKEND_CANISTER_ID || "idct5-iyaaa-aaaab-ab5ya-cai"
         : 'uxrrr-q7777-77774-qaaaq-cai',
       host: network === 'ic' ? 'https://ic0.app' : 'http://localhost:4943',
       identityProvider: network === 'ic' 
