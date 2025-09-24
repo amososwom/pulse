@@ -1,13 +1,13 @@
 import React from "react";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
-import { ArrowRight, FileText } from "lucide-react";
+import { ArrowRight, FileText, UserPlus, LogIn } from "lucide-react";
 import Navbar from "./Navbar";
 
-export default function HeroSection({ onGetStarted }) {
+export default function HeroSection({ onGetStarted, onSignIn }) {
   return (
     <div className="relative min-h-screen flex flex-col bg-gradient-to-br from-slate-50 via-white to-blue-50 overflow-hidden">
-      <Navbar onGetStarted={onGetStarted} />
+      <Navbar onGetStarted={onGetStarted} onSignIn={onSignIn} />
       
       {/* Animated Background Elements */}
       <div className="absolute inset-0 overflow-hidden">
@@ -93,6 +93,9 @@ export default function HeroSection({ onGetStarted }) {
             <h1 className="text-8xl md:text-9xl font-bold text-slate-800 tracking-tight">
               PULSE
             </h1>
+            <p className="text-xl md:text-2xl text-slate-600 mt-4 max-w-2xl mx-auto leading-relaxed">
+              The Future of Creator Economy on the Internet Computer
+            </p>
           </motion.div>
 
           {/* CTA Buttons */}
@@ -103,22 +106,59 @@ export default function HeroSection({ onGetStarted }) {
             className="flex flex-col sm:flex-row gap-4 justify-center mb-16"
           >
             <Button
-              onClick={onGetStarted}
-              className="bg-slate-800 hover:bg-slate-900 text-white px-8 py-4 rounded-full text-lg font-semibold shadow-2xl hover:shadow-3xl transform hover:scale-105 transition-all duration-300"
+              onClick={() => onGetStarted(true)}
+              className="bg-slate-800 hover:bg-slate-900 text-white px-8 py-4 rounded-full text-lg font-semibold shadow-2xl hover:shadow-3xl transform hover:scale-105 transition-all duration-300 group"
               size="lg"
             >
+              <UserPlus className="mr-2 w-5 h-5" />
               GET STARTED
-              <ArrowRight className="ml-2 w-5 h-5" />
+              <ArrowRight className="ml-2 w-5 h-5 group-hover:translate-x-1 transition-transform" />
+            </Button>
+            
+            <Button
+              onClick={() => onSignIn && onSignIn()}
+              variant="outline"
+              className="border-2 border-slate-800 text-white hover:bg-slate-800 hover:text-white px-8 py-4 rounded-full text-lg font-semibold transition-all duration-300 group"
+              size="lg"
+            >
+              <LogIn className="mr-2 w-5 h-5" />
+              SIGN IN
+              <ArrowRight className="ml-2 w-4 h-4 opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all duration-300" />
             </Button>
             
             <Button
               variant="outline"
-              className="border-2 border-slate-800 text-white hover:bg-green-800 hover:text-white px-8 py-4 rounded-full text-lg font-semibold transition-all duration-300"
+              className="border-2 border-slate-300 text-slate-600 hover:bg-slate-100 hover:text-slate-800 px-8 py-4 rounded-full text-lg font-semibold transition-all duration-300"
               size="lg"
             >
               <FileText className="mr-2 w-5 h-5" />
               WHITEPAPER
             </Button>
+          </motion.div>
+
+          {/* Feature Highlights */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.8, delay: 0.6 }}
+            className="flex flex-wrap justify-center gap-6 text-sm text-slate-500"
+          >
+            <div className="flex items-center space-x-2">
+              <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+              <span>Internet Identity</span>
+            </div>
+            <div className="flex items-center space-x-2">
+              <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+              <span>Decentralized</span>
+            </div>
+            <div className="flex items-center space-x-2">
+              <div className="w-2 h-2 bg-purple-500 rounded-full"></div>
+              <span>Low Fees</span>
+            </div>
+            <div className="flex items-center space-x-2">
+              <div className="w-2 h-2 bg-pink-500 rounded-full"></div>
+              <span>Instant Transactions</span>
+            </div>
           </motion.div>
         </div>
       </div>

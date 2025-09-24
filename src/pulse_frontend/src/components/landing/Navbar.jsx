@@ -9,12 +9,13 @@ import {
   Menu,
   X,
   MessageCircle,
-  Globe
+  Globe,
+  UserPlus,
+  LogIn
 } from "lucide-react";
 import { Link } from "react-router-dom";
-import { createPageUrl } from "@/utils";
 
-export default function Navbar({ onGetStarted }) {
+export default function Navbar({ onGetStarted, onSignIn }) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   const navLinks = [
@@ -85,18 +86,30 @@ export default function Navbar({ onGetStarted }) {
             <Button
               variant="outline"
               size="sm"
-              className="border-gray-300 text-white hover:bg-gray-50"
+              className="border-gray-300 text-gray-600 hover:bg-gray-50"
             >
               <Mail className="w-4 h-4 mr-2" />
               Contact
             </Button>
 
-            {/* Launch dApp */}
+            {/* Sign In Button */}
             <Button
-              onClick={onGetStarted}
-              className="bg-slate-800 hover:bg-slate-900 text-white px-6 rounded-full"
+              onClick={() => onSignIn && onSignIn()}
+              variant="outline"
+              size="sm"
+              className="border-slate-300 text-slate-600 hover:bg-slate-50 hover:border-slate-400 transition-all duration-200"
             >
-              Launch PULSE dApp
+              <LogIn className="w-4 h-4 mr-2" />
+              Sign In
+            </Button>
+
+            {/* Launch dApp / Get Started */}
+            <Button
+              onClick={() => onGetStarted(true)}
+              className="bg-slate-800 hover:bg-slate-900 text-white px-6 rounded-full transition-all duration-200 shadow-lg hover:shadow-xl"
+            >
+              <UserPlus className="w-4 h-4 mr-2" />
+              Get Started
             </Button>
           </div>
 
@@ -128,6 +141,8 @@ export default function Navbar({ onGetStarted }) {
                   {link.name}
                 </a>
               ))}
+              
+              {/* Mobile Social Links */}
               <div className="flex items-center gap-2 pt-4">
                 {socialLinks.map((social) => (
                   <a
@@ -141,12 +156,32 @@ export default function Navbar({ onGetStarted }) {
                   </a>
                 ))}
               </div>
-              <Button
-                onClick={onGetStarted}
-                className="bg-slate-800 text-white mt-2"
-              >
-                Launch PULSE dApp
-              </Button>
+
+              {/* Mobile Auth Buttons */}
+              <div className="flex flex-col gap-3 pt-4">
+                <Button
+                  onClick={() => {
+                    onSignIn && onSignIn();
+                    setIsMenuOpen(false);
+                  }}
+                  variant="outline"
+                  className="border-slate-300 text-slate-600 justify-center"
+                >
+                  <LogIn className="w-4 h-4 mr-2" />
+                  Sign In
+                </Button>
+                
+                <Button
+                  onClick={() => {
+                    onGetStarted(true);
+                    setIsMenuOpen(false);
+                  }}
+                  className="bg-slate-800 text-white justify-center"
+                >
+                  <UserPlus className="w-4 h-4 mr-2" />
+                  Get Started
+                </Button>
+              </div>
             </div>
           </motion.div>
         )}

@@ -2,6 +2,64 @@ import { createContext, useContext, useState, useEffect } from 'react';
 
 const AuthContext = createContext(undefined);
 
+// Helper function to get user permissions based on role
+const getUserPermissions = (userType) => {
+  const basePermissions = {
+    canViewDashboard: true,
+    canViewProfile: true,
+    canUpdateProfile: true,
+  };
+
+  switch (userType) {
+    case 'admin':
+      return {
+        ...basePermissions,
+        canCreateTokens: true,
+        canManageTokens: true,
+        canManageUsers: true,
+        canManageMarketplace: true,
+        canViewAnalytics: true,
+        canAccessAdminPanel: true,
+        canAccessCreatorDashboard: true,
+        canModerateContent: true,
+        canConfigurePlatform: true,
+        canViewAllUsers: true,
+        canSetUserRoles: true,
+        maxTokensPerDay: -1, // unlimited
+        role: 'admin'
+      };
+    
+    case 'creator':
+      return {
+        ...basePermissions,
+        canCreateTokens: true,
+        canManageOwnTokens: true,
+        canViewCreatorAnalytics: true,
+        canAccessCreatorDashboard: true,
+        canCreateListings: true,
+        canManageOwnListings: true,
+        canReceivePayments: true,
+        canTransferTokens: true,
+        maxTokensPerDay: 10,
+        role: 'creator'
+      };
+    
+    case 'user':
+    default:
+      return {
+        ...basePermissions,
+        canBuyTokens: true,
+        canTradeTokens: true,
+        canViewMarketplace: true,
+        canTransferTokens: true,
+        canCreateListings: false,
+        canCreateTokens: false,
+        maxTransactionsPerDay: 100,
+        role: 'user'
+      };
+  }
+};
+
 // Safe storage utilities that work in all environments
 const safeStorage = {
   getItem: (key) => {
@@ -54,7 +112,10 @@ export const AuthProvider = ({ children }) => {
           
           // Validate stored data structure
           if (userData && typeof userData === 'object' && userData.id) {
+            // Ensure permissions are up to date
+            userData.permissions = getUserPermissions(userData.type);
             setUser(userData);
+            console.log('User restored from storage:', userData.principal, 'as', userData.type);
           } else {
             // Clear invalid stored data
             safeStorage.removeItem('pulse-user');
@@ -79,7 +140,7 @@ export const AuthProvider = ({ children }) => {
         throw new Error('Invalid user data provided to login');
       }
 
-      // Ensure userData has required fields
+      // Ensure userData has required fields with enhanced role support
       const completeUserData = {
         id: userData.id,
         principal: userData.principal || userData.id,
@@ -89,6 +150,13 @@ export const AuthProvider = ({ children }) => {
         actor: userData.actor || null,
         isConnectedToBackend: userData.isConnectedToBackend || false,
         loginTime: new Date().toISOString(),
+        // Enhanced role-based properties
+        permissions: getUserPermissions(userData.type),
+        roleSetAt: userData.roleSetAt || new Date().toISOString(),
+        isDemo: userData.id.includes('demo') || userData.id.includes('nfid') || false,
+        // Backend connection info
+        canisterId: userData.canisterId || null,
+        network: userData.network || 'local',
         ...userData
       };
 
@@ -100,7 +168,8 @@ export const AuthProvider = ({ children }) => {
       
       safeStorage.setItem('pulse-user', JSON.stringify(storableData));
       
-      console.log('User logged in:', completeUserData.principal);
+      console.log('User logged in:', completeUserData.principal, 'as', completeUserData.type, 
+                  completeUserData.isConnectedToBackend ? '(backend connected)' : '(demo mode)');
     } catch (error) {
       console.error('Login error:', error);
       throw error;
@@ -124,7 +193,14 @@ export const AuthProvider = ({ children }) => {
         return;
       }
 
-      const updatedUser = { ...user, ...updates };
+      const updatedUser = { 
+        ...user, 
+        ...updates,
+        // Recalculate permissions if role changed
+        permissions: updates.type ? getUserPermissions(updates.type) : user.permissions,
+        // Update timestamp
+        lastUpdated: new Date().toISOString()
+      };
       setUser(updatedUser);
       
       // Store updated data (excluding actor)
@@ -138,23 +214,128 @@ export const AuthProvider = ({ children }) => {
       console.error('Profile update error:', error);
     }
   };
+const updateActor = async (actor) => {
+  try {
+    if (!user) {
+      console.warn('No user to update actor for');
+      return;
+    }
 
-  const updateActor = (actor) => {
+    setUser(prev => ({
+      ...prev,
+      actor,
+      isConnectedToBackend: !!actor,
+      lastBackendConnection: actor ? new Date().toISOString() : null
+    }));
+    
+    // Initialize user profile in backend after connecting
+    if (actor && user.principal) {
+      try {
+        console.log('Initializing user profile in backend...');
+        
+        // Call the initialization function
+        const profile = await actor.initialize_user();
+        
+        console.log('User profile initialized:', profile);
+        
+        // Update local user data with backend profile
+        const backendRole = profile.role.Admin ? 'admin' : 
+                           profile.role.Creator ? 'creator' : 'user';
+        
+        setUser(prev => ({
+          ...prev,
+          type: backendRole,
+          tokensCreated: Number(profile.tokensCreated),
+          isVerified: profile.isVerified,
+          backendInitialized: true,
+          backendSyncedAt: new Date().toISOString()
+        }));
+        
+      } catch (initError) {
+        console.error('Failed to initialize user in backend:', initError);
+        // Don't fail the actor update if initialization fails
+      }
+    }
+    
+    console.log('User actor updated, backend connected:', !!actor);
+  } catch (error) {
+    console.error('Actor update error:', error);
+  }
+};
+
+  const changeRole = async (newRole, actor) => {
     try {
       if (!user) {
-        console.warn('No user to update actor for');
-        return;
+        console.warn('No user to change role for');
+        return false;
       }
 
-      setUser(prev => ({
-        ...prev,
-        actor,
-        isConnectedToBackend: !!actor
-      }));
+      // If backend actor is available, update role on backend
+      if (actor && user.principal) {
+        try {
+          const roleVariant = newRole === 'admin' ? { Admin: null } : 
+                             newRole === 'creator' ? { Creator: null } : 
+                             { User: null };
+          
+          const success = await actor.set_user_role(user.principal, roleVariant);
+          if (success) {
+            console.log(`Role ${newRole} successfully set in backend for:`, user.principal);
+          } else {
+            console.warn('Backend role update returned false');
+          }
+        } catch (backendError) {
+          console.error('Failed to update role in backend:', backendError);
+          // Continue with local update even if backend fails
+        }
+      }
+
+      // Update local role
+      updateProfile({ 
+        type: newRole,
+        roleSetAt: new Date().toISOString()
+      });
       
-      console.log('User actor updated, backend connected:', !!actor);
+      return true;
     } catch (error) {
-      console.error('Actor update error:', error);
+      console.error('Role change error:', error);
+      return false;
+    }
+  };
+
+  // Function to sync user data with backend
+  const syncWithBackend = async (actor) => {
+    try {
+      if (!user || !actor) return false;
+
+      // Get user profile from backend
+      const backendProfile = await actor.get_user_profile(user.principal);
+      if (backendProfile && backendProfile.length > 0) {
+        const profile = backendProfile[0];
+        
+        // Extract role from backend
+        let backendRole = 'user';
+        if (profile.role.Admin !== undefined) backendRole = 'admin';
+        else if (profile.role.Creator !== undefined) backendRole = 'creator';
+        else if (profile.role.User !== undefined) backendRole = 'user';
+
+        // Update local user data if different
+        if (backendRole !== user.type) {
+          console.log(`Role sync: updating from ${user.type} to ${backendRole}`);
+          updateProfile({ 
+            type: backendRole,
+            tokensCreated: profile.tokensCreated,
+            isVerified: profile.isVerified,
+            backendSyncedAt: new Date().toISOString()
+          });
+        }
+
+        return true;
+      }
+      
+      return false;
+    } catch (error) {
+      console.error('Backend sync error:', error);
+      return false;
     }
   };
 
@@ -183,12 +364,22 @@ export const AuthProvider = ({ children }) => {
     logout,
     updateProfile,
     updateActor,
+    changeRole,
+    syncWithBackend,
     getEnvironmentInfo,
     // Computed values for easier access
     principal: user?.principal || null,
     userType: user?.type || null,
     actor: user?.actor || null,
     isConnectedToBackend: user?.isConnectedToBackend || false,
+    permissions: user?.permissions || {},
+    isDemo: user?.isDemo || false,
+    // Helper functions
+    hasBackendConnection: () => !!user?.actor && user?.isConnectedToBackend,
+    canCreateTokens: () => user?.permissions?.canCreateTokens || false,
+    isAdmin: () => user?.type === 'admin',
+    isCreator: () => user?.type === 'creator',
+    isUser: () => user?.type === 'user'
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
@@ -202,17 +393,77 @@ export const useAuth = () => {
   return context;
 };
 
-// Hook for checking if user has specific permissions
+// Enhanced hook for checking specific permissions
 export const usePermissions = () => {
-  const { user } = useAuth();
+  const { user, permissions } = useAuth();
   
   return {
+    // Role checks
     isAdmin: user?.type === 'admin',
     isCreator: user?.type === 'creator',
     isUser: user?.type === 'user',
-    canCreateTokens: user?.type === 'creator' || user?.type === 'admin',
-    canManageMarketplace: user?.type === 'admin',
+    
+    // Permission checks
+    canCreateTokens: permissions?.canCreateTokens || false,
+    canManageTokens: permissions?.canManageTokens || false,
+    canManageUsers: permissions?.canManageUsers || false,
+    canManageMarketplace: permissions?.canManageMarketplace || false,
+    canViewAnalytics: permissions?.canViewAnalytics || false,
+    canAccessAdminPanel: permissions?.canAccessAdminPanel || false,
+    canAccessCreatorDashboard: permissions?.canAccessCreatorDashboard || false,
+    canModerateContent: permissions?.canModerateContent || false,
+    canBuyTokens: permissions?.canBuyTokens || false,
+    canTradeTokens: permissions?.canTradeTokens || false,
+    canCreateListings: permissions?.canCreateListings || false,
+    canTransferTokens: permissions?.canTransferTokens || false,
+    canViewAllUsers: permissions?.canViewAllUsers || false,
+    canSetUserRoles: permissions?.canSetUserRoles || false,
+    
+    // Backend checks
     hasBackendAccess: user?.isConnectedToBackend === true,
+    isInDemoMode: user?.isDemo === true,
+    
+    // Utility functions
+    hasPermission: (permission) => permissions?.[permission] || false,
+    hasAnyPermission: (permissionsList) => 
+      permissionsList.some(permission => permissions?.[permission]),
+    hasAllPermissions: (permissionsList) => 
+      permissionsList.every(permission => permissions?.[permission]),
+    
+    // Role hierarchy check
+    hasMinimumRole: (minimumRole) => {
+      const roleHierarchy = { user: 1, creator: 2, admin: 3 };
+      const userLevel = roleHierarchy[user?.type] || 0;
+      const requiredLevel = roleHierarchy[minimumRole] || 0;
+      return userLevel >= requiredLevel;
+    },
+
+    // Check if user can perform token operations
+    canPerformTokenOperation: (operation) => {
+      if (!user?.isConnectedToBackend && operation !== 'view') {
+        return { allowed: false, reason: 'Backend connection required' };
+      }
+      
+      switch (operation) {
+        case 'create':
+          return { 
+            allowed: permissions?.canCreateTokens || false, 
+            reason: permissions?.canCreateTokens ? null : 'Insufficient permissions to create tokens'
+          };
+        case 'transfer':
+          return { 
+            allowed: permissions?.canTransferTokens || false,
+            reason: permissions?.canTransferTokens ? null : 'Insufficient permissions to transfer tokens'
+          };
+        case 'manage':
+          return { 
+            allowed: permissions?.canManageTokens || permissions?.canManageOwnTokens || false,
+            reason: (permissions?.canManageTokens || permissions?.canManageOwnTokens) ? null : 'Insufficient permissions to manage tokens'
+          };
+        default:
+          return { allowed: true, reason: null };
+      }
+    }
   };
 };
 

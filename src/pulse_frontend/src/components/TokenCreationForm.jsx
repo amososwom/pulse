@@ -68,9 +68,117 @@ const tokenFormSchema = z.object({
 
 const TokenCreationForm = ({ open, onOpenChange }) => {
   const [isCreating, setIsCreating] = useState(false);
+  const [isConnectingActor, setIsConnectingActor] = useState(false);
   const { toast } = useToast();
-  const { user, actor, isConnectedToBackend, principal } = useAuth();
+  const { user, updateActor, isConnectedToBackend, principal } = useAuth();
   const { canCreateTokens } = usePermissions();
+
+  // Get or create actor
+  const [actor, setActor] = useState(user?.actor || null);
+
+  // IDL Factory - make sure this matches your backend
+  const idlFactory = ({ IDL }) => {
+    const TokenId = IDL.Nat;
+    const Tokens = IDL.Nat;
+    const Account = IDL.Principal;
+    
+    const CreateTokenError = IDL.Variant({
+      'InvalidName': IDL.Null,
+      'InvalidSymbol': IDL.Null,
+      'InvalidSupply': IDL.Null,
+      'AnonymousNotAllowed': IDL.Null,
+      'InsufficientPermissions': IDL.Null,
+      'RateLimitExceeded': IDL.Null,
+      'InternalError': IDL.Text,
+    });
+
+    const CreateTokenResult = IDL.Variant({
+      'ok': TokenId,
+      'err': CreateTokenError,
+    });
+
+    return IDL.Service({
+      'create_token': IDL.Func(
+        [IDL.Text, IDL.Text, Tokens, IDL.Nat8, IDL.Opt(IDL.Text)],
+        [CreateTokenResult],
+        [],
+      ),
+      'whoami': IDL.Func([], [IDL.Principal], ['query']),
+      'token_info': IDL.Func([TokenId], [IDL.Opt(IDL.Record({
+        'name': IDL.Text,
+        'symbol': IDL.Text,
+        'decimals': IDL.Nat8,
+        'total_supply': Tokens,
+        'minting_account': Account,
+        'logo_url': IDL.Opt(IDL.Text),
+      }))], ['query']),
+    });
+  };
+
+  // Environment config
+  const getConfig = () => {
+    const isDevelopment = process.env.NODE_ENV === 'development';
+    const network = process.env.DFX_NETWORK || (isDevelopment ? 'local' : 'ic');
+    
+    return {
+      network,
+      host: network === 'ic' ? 'https://ic0.app' : 'http://localhost:4943',
+      backendCanisterId: network === 'ic'
+        ? process.env.REACT_APP_PULSE_BACKEND_CANISTER_ID
+        : 'uxrrr-q7777-77774-qaaaq-cai',
+    };
+  };
+
+  // Function to recreate actor when needed
+  const recreateActor = async () => {
+    if (!user || actor) return; // Don't recreate if we already have one
+
+    setIsConnectingActor(true);
+    try {
+      const authClient = await AuthClient.create();
+      const identity = authClient.getIdentity();
+      
+      if (identity.getPrincipal().isAnonymous()) {
+        console.warn('Cannot recreate actor with anonymous identity');
+        setIsConnectingActor(false);
+        return;
+      }
+
+      const config = getConfig();
+      const agent = new HttpAgent({
+        identity,
+        host: config.host
+      });
+
+      if (config.network !== 'ic') {
+        await agent.fetchRootKey();
+      }
+
+      const newActor = Actor.createActor(idlFactory, {
+        agent,
+        canisterId: config.backendCanisterId,
+      });
+
+      // Test the connection
+      await newActor.whoami();
+      
+      setActor(newActor);
+      updateActor(newActor);
+      console.log('Actor recreated successfully');
+      
+    } catch (error) {
+      console.error('Failed to recreate actor:', error);
+    } finally {
+      setIsConnectingActor(false);
+    }
+  };
+
+  // Try to recreate actor when component mounts or user changes
+  useEffect(() => {
+    if (user && !actor && user.isConnectedToBackend) {
+      recreateActor();
+    }
+  }, [user, actor]);
 
   const form = useForm({
     resolver: zodResolver(tokenFormSchema),
@@ -130,10 +238,21 @@ const TokenCreationForm = ({ open, onOpenChange }) => {
       return;
     }
 
-    if (!actor) {
+    // Try to recreate actor if needed
+    let currentActor = actor;
+    if (!currentActor && user.isConnectedToBackend) {
       toast({
-        title: "Backend Not Connected",
-        description: "Unable to connect to the backend. Please refresh and try again.",
+        title: "Reconnecting to Backend",
+        description: "Establishing connection...",
+      });
+      await recreateActor();
+      currentActor = actor;
+    }
+
+    if (!currentActor) {
+      toast({
+        title: "Backend Connection Required",
+        description: "Please refresh the page and sign in again to connect to the backend.",
         variant: "destructive",
       });
       return;
@@ -145,30 +264,41 @@ const TokenCreationForm = ({ open, onOpenChange }) => {
       console.log("User principal:", principal);
 
       // Prepare token parameters with proper type conversion
-      const tokenName = values.name;
-      const tokenSymbol = values.symbol;
+      const tokenName = values.name.trim();
+      const tokenSymbol = values.symbol.trim();
+      
       // Ensure we're within JavaScript's safe integer range for Motoko Nat
       const supply = Math.min(values.totalSupply || 1000000, Number.MAX_SAFE_INTEGER);
       const initialSupply = Math.floor(supply); // Ensure it's an integer
       const decimals = 8; // Standard decimal places
-      const logoUrl = values.logoUrl && values.logoUrl.trim() !== "" ? values.logoUrl : null;
+      
+      // Handle optional logoUrl properly for Candid interface
+      const logoUrl = (values.logoUrl && values.logoUrl.trim() !== "") ? values.logoUrl.trim() : null;
+      let optionalLogoUrl;
+      if (logoUrl) {
+        optionalLogoUrl = [logoUrl];
+      } else {
+        optionalLogoUrl = [];
+      }
 
-      console.log("Calling create_token with:", {
+      console.log("Calling create_token with parameters:", {
         tokenName,
         tokenSymbol,
         initialSupply,
         decimals,
-        logoUrl
+        logoUrl: optionalLogoUrl.length > 0 ? optionalLogoUrl[0] : "null"
       });
 
-      // Call backend to create token
-      const result = await actor.create_token(
-        tokenName,                    // Text
-        tokenSymbol,                  // Text  
-        initialSupply,                // Nat (integer)
-        decimals,                     // Nat8 (small integer)
-        logoUrl ? [logoUrl] : []      // Opt Text (optional)
+      // Call backend to create token with proper optional type handling
+      const result = await currentActor.create_token(
+        tokenName,         // name: Text
+        tokenSymbol,       // symbol: Text  
+        initialSupply,     // initial_supply: Tokens (Nat)
+        decimals,          // decimals: Nat8
+        optionalLogoUrl    // logo_url: ?Text ([] for None, [value] for Some)
       );
+
+      console.log("Backend response:", result);
 
       // Handle the Result type from backend
       if (result.ok !== undefined) {
@@ -176,9 +306,9 @@ const TokenCreationForm = ({ open, onOpenChange }) => {
         const tokenId = result.ok;
         console.log("Token created with ID:", tokenId.toString());
 
-        // Get token info to confirm creation
+        // Try to get token info to confirm creation
         try {
-          const tokenInfo = await actor.token_info(tokenId);
+          const tokenInfo = await currentActor.token_info(tokenId);
           console.log("Created token info:", tokenInfo);
         } catch (infoError) {
           console.warn("Token created but couldn't fetch info:", infoError);
@@ -192,42 +322,56 @@ const TokenCreationForm = ({ open, onOpenChange }) => {
 
         onOpenChange(false);
         form.reset();
+        
       } else if (result.err !== undefined) {
-        // Error case
+        // Error case - handle all possible error variants
         const error = result.err;
         let errorMessage = "Unknown error occurred";
         
-        if (typeof error === 'object') {
-          if (error.InvalidName) errorMessage = "Invalid token name provided";
-          else if (error.InvalidSymbol) errorMessage = "Invalid token symbol provided";
-          else if (error.InvalidSupply) errorMessage = "Invalid token supply provided";
-          else if (error.AnonymousNotAllowed) errorMessage = "Anonymous users cannot create tokens";
-          else if (error.InternalError) errorMessage = `Internal error: ${error.InternalError}`;
+        // Check each possible error variant
+        if (error.InvalidName !== undefined) {
+          errorMessage = "Invalid token name (must be 2-50 characters)";
+        } else if (error.InvalidSymbol !== undefined) {
+          errorMessage = "Invalid token symbol (must be 2-10 characters)";
+        } else if (error.InvalidSupply !== undefined) {
+          errorMessage = "Invalid token supply (must be greater than 0)";
+        } else if (error.AnonymousNotAllowed !== undefined) {
+          errorMessage = "Anonymous users cannot create tokens";
+        } else if (error.InsufficientPermissions !== undefined) {
+          errorMessage = "You don't have permission to create tokens";
+        } else if (error.RateLimitExceeded !== undefined) {
+          errorMessage = "Rate limit exceeded, please try again later";
+        } else if (error.InternalError !== undefined) {
+          errorMessage = `Internal error: ${error.InternalError}`;
         }
 
+        console.error("Token creation error:", error);
         throw new Error(errorMessage);
+        
       } else {
+        console.error("Unexpected response format:", result);
         throw new Error("Unexpected response format from backend");
       }
+
     } catch (error) {
       console.error("Error creating token:", error);
+      
       toast({
         title: "Error Creating Token",
-        description: error.message || "Failed to create token. Please try again.",
+        description: error.message || "Failed to create token. Please check your inputs and try again.",
         variant: "destructive",
       });
     } finally {
       setIsCreating(false);
     }
   };
-
   const estimatedMarketCap =
     watchedBasePrice && watchedSupply
       ? (watchedBasePrice * watchedSupply).toLocaleString()
       : "0";
 
   // Authentication status component
-  const AuthStatus = () => {
+const AuthStatus = () => {
     if (!user) {
       return (
         <Card className="border-red-200 bg-red-50">
@@ -241,20 +385,42 @@ const TokenCreationForm = ({ open, onOpenChange }) => {
       );
     }
 
-    if (!isConnectedToBackend) {
+    if (isConnectingActor) {
       return (
         <Card className="border-yellow-200 bg-yellow-50">
           <CardContent className="pt-6">
             <div className="flex items-center space-x-2 text-yellow-800">
-              <AlertCircle className="w-4 h-4" />
-              <span className="text-sm">Backend connection unavailable</span>
+              <Loader2 className="w-4 h-4 animate-spin" />
+              <span className="text-sm">Connecting to backend...</span>
             </div>
           </CardContent>
         </Card>
       );
     }
 
-  return (
+    if (!actor) {
+      return (
+        <Card className="border-yellow-200 bg-yellow-50">
+          <CardContent className="pt-6">
+            <div className="flex items-center space-x-2 text-yellow-800">
+              <AlertCircle className="w-4 h-4" />
+              <div className="flex-1">
+                <div className="text-sm">Backend connection unavailable</div>
+                <button 
+                  onClick={recreateActor}
+                  className="text-xs text-yellow-700 underline mt-1"
+                >
+                  Try reconnecting
+                </button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      );
+    }
+
+    return (
+      // Your existing success AuthStatus component
       <Card className="relative overflow-hidden border-0 bg-gradient-to-br from-emerald-50 via-green-50 to-teal-50 shadow-lg">
         <div className="absolute inset-0 bg-gradient-to-br from-emerald-100/20 via-transparent to-teal-100/20"></div>
         <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-green-200/30 to-transparent rounded-bl-full"></div>
@@ -267,26 +433,12 @@ const TokenCreationForm = ({ open, onOpenChange }) => {
             </div>
             <div className="flex-1 space-y-2">
               <div className="flex items-center space-x-2">
-                <h3 className="font-semibold text-emerald-800">Secure Connection Active</h3>
+                <h3 className="font-semibold text-emerald-800">Backend Connected</h3>
                 <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
               </div>
               <p className="text-sm text-emerald-700 leading-relaxed">
-                Internet Identity verified and backend connection established. Your token creation is secured with end-to-end encryption.
+                Ready to create tokens on the Internet Computer.
               </p>
-              <div className="flex items-center space-x-4 pt-2">
-                <div className="flex items-center space-x-1 text-xs text-emerald-600">
-                  <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></div>
-                  <span>Authenticated</span>
-                </div>
-                <div className="flex items-center space-x-1 text-xs text-emerald-600">
-                  <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></div>
-                  <span>Backend Connected</span>
-                </div>
-                <div className="flex items-center space-x-1 text-xs text-emerald-600">
-                  <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></div>
-                  <span>Ready to Deploy</span>
-                </div>
-              </div>
             </div>
           </div>
         </CardContent>
