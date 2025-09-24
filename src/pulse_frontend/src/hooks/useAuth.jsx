@@ -214,6 +214,7 @@ export const AuthProvider = ({ children }) => {
       console.error('Profile update error:', error);
     }
   };
+
 const updateActor = async (actor) => {
   try {
     if (!user) {
@@ -231,29 +232,45 @@ const updateActor = async (actor) => {
     // Initialize user profile in backend after connecting
     if (actor && user.principal) {
       try {
-        console.log('Initializing user profile in backend...');
+        console.log('Initializing user profile in backend for:', user.principal);
         
-        // Call the initialization function
+        // Call the initialization function to create/update user profile
         const profile = await actor.initialize_user();
         
         console.log('User profile initialized:', profile);
         
-        // Update local user data with backend profile
-        const backendRole = profile.role.Admin ? 'admin' : 
-                           profile.role.Creator ? 'creator' : 'user';
+        // Extract role from backend profile
+        let backendRole = 'user';
+        if (profile.role.Admin !== undefined) backendRole = 'admin';
+        else if (profile.role.Creator !== undefined) backendRole = 'creator';
+        else if (profile.role.User !== undefined) backendRole = 'user';
         
+        // Update local user data with backend profile information
         setUser(prev => ({
           ...prev,
           type: backendRole,
           tokensCreated: Number(profile.tokensCreated),
           isVerified: profile.isVerified,
           backendInitialized: true,
-          backendSyncedAt: new Date().toISOString()
+          backendSyncedAt: new Date().toISOString(),
+          backendProfile: profile,
+          // Update permissions based on backend role
+          permissions: getUserPermissions(backendRole)
         }));
+        
+        console.log('User profile synced with backend, role:', backendRole);
         
       } catch (initError) {
         console.error('Failed to initialize user in backend:', initError);
-        // Don't fail the actor update if initialization fails
+        
+        // Try the simpler ping function as fallback
+        try {
+          console.log('Trying ping function as fallback...');
+          await actor.ping();
+          console.log('Ping successful - user should be created');
+        } catch (pingError) {
+          console.error('Ping also failed:', pingError);
+        }
       }
     }
     
@@ -262,7 +279,6 @@ const updateActor = async (actor) => {
     console.error('Actor update error:', error);
   }
 };
-
   const changeRole = async (newRole, actor) => {
     try {
       if (!user) {

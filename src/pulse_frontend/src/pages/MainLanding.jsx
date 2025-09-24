@@ -70,8 +70,18 @@ const idlFactory = ({ IDL }) => {
     'tokensCreated': IDL.Nat,
     'isVerified': IDL.Bool,
   });
+
+  const TokenInfo = IDL.Record({
+    'name': IDL.Text,
+    'symbol': IDL.Text,
+    'decimals': IDL.Nat8,
+    'total_supply': Tokens,
+    'minting_account': Account,
+    'logo_url': IDL.Opt(IDL.Text),
+  });
   
   return IDL.Service({
+    // Token functions
     'create_token': IDL.Func(
       [IDL.Text, IDL.Text, Tokens, IDL.Nat8, IDL.Opt(IDL.Text)],
       [CreateTokenResult],
@@ -82,15 +92,26 @@ const idlFactory = ({ IDL }) => {
       [TransferResult],
       [],
     ),
-    'whoami': IDL.Func([], [IDL.Principal], ['query']),
-    'get_user_tokens': IDL.Func([Account], [IDL.Vec(IDL.Tuple(TokenId, Tokens))], ['query']),
-    'get_user_role': IDL.Func([Account], [IDL.Opt(UserRole)], ['query']),
-    'get_user_profile': IDL.Func([Account], [IDL.Opt(UserProfile)], ['query']),
-    'set_user_role': IDL.Func([Account, UserRole], [IDL.Bool], []),
-    'is_admin': IDL.Func([Account], [IDL.Bool], ['query']),
+    'token_info': IDL.Func([TokenId], [IDL.Opt(TokenInfo)], ['query']),
+    'token_metadata': IDL.Func([TokenId], [IDL.Opt(IDL.Tuple(IDL.Text, IDL.Text, IDL.Nat8, IDL.Opt(IDL.Text)))], ['query']),
     'balance_of': IDL.Func([TokenId, Account], [Tokens], ['query']),
     'total_supply': IDL.Func([TokenId], [Tokens], ['query']),
     'all_tokens': IDL.Func([], [IDL.Vec(TokenId)], ['query']),
+    'get_user_tokens': IDL.Func([Account], [IDL.Vec(IDL.Tuple(TokenId, Tokens))], ['query']),
+    
+    // User management functions
+    'initialize_user': IDL.Func([], [UserProfile], []),
+    'get_or_create_profile': IDL.Func([], [UserProfile], []),
+    'ping': IDL.Func([], [IDL.Bool], []),
+    'get_user_profile': IDL.Func([Account], [IDL.Opt(UserProfile)], ['query']),
+    'get_user_role': IDL.Func([Account], [IDL.Opt(UserRole)], ['query']),
+    'set_user_role': IDL.Func([Account, UserRole], [IDL.Bool], []),
+    'is_admin': IDL.Func([Account], [IDL.Bool], ['query']),
+    'user_exists': IDL.Func([Account], [IDL.Bool], ['query']),
+    'get_user_count': IDL.Func([], [IDL.Nat], ['query']),
+    
+    // Platform functions
+    'whoami': IDL.Func([], [IDL.Principal], ['query']),
     'get_stats': IDL.Func([], [IDL.Record({
       'total_tokens': IDL.Nat,
       'total_users': IDL.Nat,
@@ -200,160 +221,223 @@ function MainLanding() {
     }
   };
 
-  const completeLogin = (principal, actor, userType, isConnectedToBackend) => {
-    // Store the user's last role for future logins
-    if (typeof window !== 'undefined' && window.localStorage) {
-      localStorage.setItem('pulse-last-user-type', userType);
-    }
 
-    login({
-      id: principal,
-      principal: principal,
-      type: userType,
-      name: userType === 'admin' ? 'Admin User' :
-            userType === 'creator' ? `Creator ${principal.slice(0, 8)}...` :
-            `User ${principal.slice(0, 8)}...`,
-      avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${principal}`,
-      actor: actor,
-      isConnectedToBackend: isConnectedToBackend
-    });
+
+const handleInternetIdentity = async () => {
+  setIsAuthenticating(true);
+  setAuthenticationMethod('internet-identity');
+  
+  try {
+    const authClient = await AuthClient.create();
     
-    // Navigate to the appropriate dashboard based on role
-    const route = getRouteForUserType(userType);
-    navigate(route);
-  };
-
-  const handleInternetIdentity = async () => {
-    setIsAuthenticating(true);
-    setAuthenticationMethod('internet-identity');
-    
-    try {
-      const authClient = await AuthClient.create();
-      
-      await authClient.login({
-        identityProvider: config.identityProvider,
-        maxTimeToLive: BigInt(7 * 24 * 60 * 60 * 1000 * 1000 * 1000), // 7 days
-        onSuccess: async () => {
-          try {
-            const identity = authClient.getIdentity();
-            const principal = identity.getPrincipal();
-            
-            if (principal.isAnonymous()) {
-              throw new Error('Authentication failed - received anonymous principal');
-            }
-
-            console.log('Authenticated as:', principal.toString());
-
-            // Create actor with authenticated identity
-            const actor = await createActor(identity);
-            
-            // Test backend connection and get whoami
-            const whoami = await actor.whoami();
-            console.log('Connected to backend as:', whoami.toString());
-
-            // Determine user role
-            const userRole = await determineUserRole(principal, actor);
-            
-            if (userRole) {
-              // Existing user with role - login directly to their appropriate dashboard
-              setShowAuthModal(false);
-              completeLogin(principal.toString(), actor, userRole, true);
-            } else if (isSignUp) {
-              // New user signing up - show role selection
-              setPendingAuth({
-                principal: principal,
-                actor: actor
-              });
-              setShowRoleSelection(true);
-            } else {
-              // User trying to sign in but no profile exists - treat as sign up
-              console.log('No existing profile found, switching to sign up flow');
-              setIsSignUp(true);
-              setPendingAuth({
-                principal: principal,
-                actor: actor
-              });
-              setShowRoleSelection(true);
-            }
-          } catch (err) {
-            console.error('Post-login setup failed:', err);
-            // Still proceed with basic login
-            const identity = authClient.getIdentity();
-            const principal = identity.getPrincipal();
-            
-            // For fallback, use the last known user type or default to user
-            let fallbackType = 'user';
-            if (typeof window !== 'undefined' && window.localStorage) {
-              fallbackType = localStorage.getItem('pulse-last-user-type') || 'user';
-            }
-            
-            setShowAuthModal(false);
-            completeLogin(principal.toString(), null, fallbackType, false);
-          } finally {
-            setIsAuthenticating(false);
-          }
-        },
-        onError: (error) => {
-          console.error('Internet Identity login failed:', error);
-          setIsAuthenticating(false);
-          setAuthenticationMethod(null);
-        }
-      });
-    } catch (error) {
-      console.error("Internet Identity authentication failed:", error);
-      setIsAuthenticating(false);
-      setAuthenticationMethod(null);
-    }
-  };
-
-  const handleRoleSelect = async (role) => {
-    if (!pendingAuth) return;
-
-    setIsAuthenticating(true);
-    try {
-      if (pendingAuth.actor && pendingAuth.principal) {
+    await authClient.login({
+      identityProvider: config.identityProvider,
+      maxTimeToLive: BigInt(7 * 24 * 60 * 60 * 1000 * 1000 * 1000), // 7 days
+      onSuccess: async () => {
         try {
-          // Set role in backend using the correct variant format
-          const roleVariant = role === 'admin' ? { Admin: null } : 
-                             role === 'creator' ? { Creator: null } : 
-                             { User: null };
+          const identity = authClient.getIdentity();
+          const principal = identity.getPrincipal();
           
-          const success = await pendingAuth.actor.set_user_role(pendingAuth.principal, roleVariant);
-          if (success) {
-            console.log(`Role ${role} successfully set for principal:`, pendingAuth.principal.toString());
-          } else {
-            console.warn('Failed to set role in backend, continuing with local role');
+          if (principal.isAnonymous()) {
+            throw new Error('Authentication failed - received anonymous principal');
           }
-        } catch (backendError) {
-          console.error('Backend role setting failed:', backendError);
-          // Continue with local role assignment
+
+          console.log('Authenticated as:', principal.toString());
+
+          // Create actor with authenticated identity
+          const actor = await createActor(identity);
+          
+          // Test backend connection
+          const whoami = await actor.whoami();
+          console.log('Connected to backend as:', whoami.toString());
+
+          // STEP 1: Initialize user in backend first
+          console.log('Initializing user profile in backend...');
+          let userProfile = null;
+          try {
+            userProfile = await actor.initialize_user();
+            console.log('User profile initialized:', userProfile);
+          } catch (initError) {
+            console.warn('Initialize_user failed, trying ping...', initError);
+            try {
+              await actor.ping();
+              console.log('Ping successful - user profile created');
+              // Try to get the profile after ping
+              const profileResult = await actor.get_user_profile(principal);
+              if (profileResult && profileResult.length > 0) {
+                userProfile = profileResult[0];
+                console.log('Retrieved profile after ping:', userProfile);
+              }
+            } catch (pingError) {
+              console.error('Both initialize_user and ping failed:', pingError);
+            }
+          }
+
+          // STEP 2: Determine existing role or show role selection
+          if (userProfile) {
+            // Extract role from backend profile
+            let backendRole = 'user';
+            if (userProfile.role.Admin !== undefined) backendRole = 'admin';
+            else if (userProfile.role.Creator !== undefined) backendRole = 'creator';
+            else if (userProfile.role.User !== undefined) backendRole = 'user';
+
+            // Check if this is a returning user with tokens (auto-promote to creator)
+            if (backendRole === 'user' && Number(userProfile.tokensCreated) > 0) {
+              backendRole = 'creator';
+              // Update role in backend
+              try {
+                await actor.set_user_role(principal, { Creator: null });
+                console.log('Auto-promoted user to creator based on tokens created');
+              } catch (roleError) {
+                console.warn('Failed to update role to creator:', roleError);
+              }
+            }
+
+            console.log('Existing user found with role:', backendRole);
+            
+            // Login existing user directly
+            setShowAuthModal(false);
+            completeLogin(principal.toString(), actor, backendRole, true);
+          } else if (isSignUp) {
+            // New user signing up - show role selection
+            setPendingAuth({
+              principal: principal,
+              actor: actor,
+              backendInitialized: true
+            });
+            setShowRoleSelection(true);
+          } else {
+            // User trying to sign in but no profile exists
+            console.log('No profile found for sign in, switching to sign up flow');
+            setIsSignUp(true);
+            setPendingAuth({
+              principal: principal,
+              actor: actor,
+              backendInitialized: true
+            });
+            setShowRoleSelection(true);
+          }
+        } catch (err) {
+          console.error('Post-login setup failed:', err);
+          
+          // Fallback: try basic connection without backend initialization
+          const identity = authClient.getIdentity();
+          const principal = identity.getPrincipal();
+          
+          let fallbackActor = null;
+          try {
+            fallbackActor = await createActor(identity);
+          } catch (actorError) {
+            console.error('Failed to create fallback actor:', actorError);
+          }
+          
+          // Use last known user type or default to user
+          let fallbackType = 'user';
+          if (typeof window !== 'undefined' && window.localStorage) {
+            fallbackType = localStorage.getItem('pulse-last-user-type') || 'user';
+          }
+          
+          console.log('Using fallback login with role:', fallbackType);
+          setShowAuthModal(false);
+          completeLogin(principal.toString(), fallbackActor, fallbackType, !!fallbackActor);
+        } finally {
+          setIsAuthenticating(false);
         }
+      },
+      onError: (error) => {
+        console.error('Internet Identity login failed:', error);
+        setIsAuthenticating(false);
+        setAuthenticationMethod(null);
       }
-      
-      setShowRoleSelection(false);
-      setShowAuthModal(false);
-      completeLogin(
-        pendingAuth.principal.toString(), 
-        pendingAuth.actor, 
-        role, 
-        !!pendingAuth.actor
-      );
-    } catch (error) {
-      console.error('Failed to complete role selection:', error);
-      // Still proceed with local role selection
-      setShowRoleSelection(false);
-      setShowAuthModal(false);
-      completeLogin(
-        pendingAuth.principal.toString(), 
-        pendingAuth.actor, 
-        role, 
-        !!pendingAuth.actor
-      );
-    } finally {
-      setIsAuthenticating(false);
-      setPendingAuth(null);
+    });
+  } catch (error) {
+    console.error("Internet Identity authentication failed:", error);
+    setIsAuthenticating(false);
+    setAuthenticationMethod(null);
+  }
+};
+
+const handleRoleSelect = async (role) => {
+  if (!pendingAuth) return;
+
+  setIsAuthenticating(true);
+  try {
+    console.log('Setting user role to:', role);
+    
+    // Set role in backend
+    if (pendingAuth.actor && pendingAuth.principal) {
+      try {
+        const roleVariant = role === 'admin' ? { Admin: null } : 
+                           role === 'creator' ? { Creator: null } : 
+                           { User: null };
+        
+        const success = await pendingAuth.actor.set_user_role(pendingAuth.principal, roleVariant);
+        if (success) {
+          console.log(`Role ${role} successfully set in backend`);
+        } else {
+          console.warn('Backend returned false for role setting - may be permission issue');
+          // For new users, this might fail because they're not admin - that's okay
+          // The role will be set when they create their first token or through other means
+        }
+      } catch (backendError) {
+        console.error('Backend role setting failed:', backendError);
+        // Continue anyway - role can be set later
+      }
     }
-  };
+    
+    // Complete login with selected role
+    setShowRoleSelection(false);
+    setShowAuthModal(false);
+    completeLogin(
+      pendingAuth.principal.toString(), 
+      pendingAuth.actor, 
+      role, 
+      !!pendingAuth.actor && pendingAuth.backendInitialized
+    );
+  } catch (error) {
+    console.error('Failed to complete role selection:', error);
+    // Still proceed with selected role
+    setShowRoleSelection(false);
+    setShowAuthModal(false);
+    completeLogin(
+      pendingAuth.principal.toString(), 
+      pendingAuth.actor, 
+      role, 
+      !!pendingAuth.actor
+    );
+  } finally {
+    setIsAuthenticating(false);
+    setPendingAuth(null);
+  }
+};
+
+const completeLogin = (principal, actor, userType, isConnectedToBackend) => {
+  // Store the user's last role for future logins
+  if (typeof window !== 'undefined' && window.localStorage) {
+    localStorage.setItem('pulse-last-user-type', userType);
+  }
+
+  console.log('Completing login:', { principal, userType, isConnectedToBackend });
+
+  login({
+    id: principal,
+    principal: principal,
+    type: userType,
+    name: userType === 'admin' ? 'Admin User' :
+          userType === 'creator' ? `Creator ${principal.slice(0, 8)}...` :
+          `User ${principal.slice(0, 8)}...`,
+    avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${principal}`,
+    actor: actor,
+    isConnectedToBackend: isConnectedToBackend,
+    backendInitialized: isConnectedToBackend
+  });
+  
+  // Navigate to the appropriate dashboard based on role
+  const route = getRouteForUserType(userType);
+  console.log('Navigating to:', route);
+  navigate(route);
+};
+
 
   const handleSkipRoleSelection = () => {
     if (!pendingAuth) return;

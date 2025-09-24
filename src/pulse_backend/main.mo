@@ -99,22 +99,6 @@ persistent actor PulseMarket {
     ];
   };
 
-
-// Add this function to your backend main.mo file
-
-// Initialize/register user (call after Internet Identity login)
-public shared ({ caller }) func initialize_user() : async UserProfile {
-  // This will create the user profile if it doesn't exist
-  updateUserActivity(caller);
-  getUserOrCreate(caller)
-};
-
-// Get or initialize user profile (safer version)
-public shared ({ caller }) func get_or_create_profile() : async UserProfile {
-  updateUserActivity(caller);
-  getUserOrCreate(caller)
-};
-
   // System upgrade hooks
   system func preupgrade() {
     userProfilesStable := Iter.toArray(userProfiles.entries());
@@ -154,24 +138,7 @@ public shared ({ caller }) func get_or_create_profile() : async UserProfile {
     }
   };
 
-// ill later allow specify to whom my craet tokneikens
-  // private func hasCreatePermission(principal : Account) : Bool {
-  //   switch (userProfiles.get(principal)) {
-  //     case (?profile) {
-  //       switch (profile.role) {
-  //         case (#Admin) true;
-  //         case (#Creator) true;
-  //         case (#User) true;  // Changed: Users can now create tokens
-  //       }
-  //     };
-  //     case null {
-  //       // Allow new users to create tokens by default for demo purposes
-  //       true
-  //     };
-  //   }
-  // };
-
-// Allow all users to create tokens - open platform approach
+  // Allow all users to create tokens - open platform approach
   private func hasCreatePermission(principal : Account) : Bool {
     // For an open creator platform, everyone can create tokens
     true
@@ -191,6 +158,7 @@ public shared ({ caller }) func get_or_create_profile() : async UserProfile {
           isVerified = false;
         };
         userProfiles.put(principal, newProfile);
+        Debug.print("Created new user profile for: " # Principal.toText(principal));
         newProfile
       };
     }
@@ -291,9 +259,57 @@ public shared ({ caller }) func get_or_create_profile() : async UserProfile {
     true
   };
 
+  // Helper function for get_user_tokens
+  private func getBalance_helper(token : Token, account : Account) : Tokens {
+    for ((acc, balance) in token.balances.vals()) {
+      if (Principal.equal(acc, account)) return balance;
+    };
+    0
+  };
+
   //
   // Public User Management Functions
   //
+
+  // Initialize/register user (call after Internet Identity login)
+  public shared ({ caller }) func initialize_user() : async UserProfile {
+    Debug.print("Initializing user: " # Principal.toText(caller));
+    
+    // Validate caller is not anonymous
+    if (Principal.isAnonymous(caller)) {
+      Debug.print("Anonymous caller attempted to initialize");
+      // Return a default error profile or throw error
+      // For now, we'll create a profile but this shouldn't happen in real use
+    };
+    
+    // This will create the user profile if it doesn't exist
+    updateUserActivity(caller);
+    let profile = getUserOrCreate(caller);
+    
+    Debug.print("User initialized with role: " # (
+      switch (profile.role) {
+        case (#Admin) "Admin";
+        case (#Creator) "Creator";  
+        case (#User) "User";
+      }
+    ));
+    
+    profile
+  };
+
+  // Get or initialize user profile (safer version)
+  public shared ({ caller }) func get_or_create_profile() : async UserProfile {
+    updateUserActivity(caller);
+    getUserOrCreate(caller)
+  };
+
+  // Simple ping function for testing connectivity and creating user profile
+  public shared ({ caller }) func ping() : async Bool {
+    Debug.print("Ping from: " # Principal.toText(caller));
+    updateUserActivity(caller);
+    ignore getUserOrCreate(caller);
+    true
+  };
 
   // Set user role (admin only)
   public shared ({ caller }) func set_user_role(user : Account, role : UserRole) : async Bool {
@@ -403,6 +419,8 @@ public shared ({ caller }) func get_or_create_profile() : async UserProfile {
     };
     userProfiles.put(caller, updatedProfile);
     
+    Debug.print("Token created with ID: " # Nat.toText(tokenId) # " by " # Principal.toText(caller));
+    
     #ok(tokenId)
   };
 
@@ -495,14 +513,6 @@ public shared ({ caller }) func get_or_create_profile() : async UserProfile {
     result
   };
 
-  // Helper function for get_user_tokens
-  private func getBalance_helper(token : Token, account : Account) : Tokens {
-    for ((acc, balance) in token.balances.vals()) {
-      if (Principal.equal(acc, account)) return balance;
-    };
-    0
-  };
-
   //
   // Query Functions
   //
@@ -551,5 +561,18 @@ public shared ({ caller }) func get_or_create_profile() : async UserProfile {
       Iter.toArray(userProfiles.entries()),
       func((principal, profile) : (Account, UserProfile)) : UserProfile { profile }
     )
+  };
+
+  // Debug function to check if user exists
+  public query func user_exists(user : Account) : async Bool {
+    switch (userProfiles.get(user)) {
+      case (?_) true;
+      case null false;
+    }
+  };
+
+  // Debug function to get user count
+  public query func get_user_count() : async Nat {
+    userProfiles.size()
   };
 }
