@@ -144,6 +144,7 @@ persistent actor PulseMarket {
     true
   };
 
+
   private func getUserOrCreate(principal : Account) : UserProfile {
     switch (userProfiles.get(principal)) {
       case (?profile) profile;
