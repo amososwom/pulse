@@ -148,7 +148,8 @@ persistent actor PulseMarket {
     switch (userProfiles.get(principal)) {
       case (?profile) profile;
       case null {
-        let role = if (isAdmin(principal)) #Admin else #User;
+        // let role = if (isAdmin(principal)) #Admin else #User; // for testing purpose everyone is admin
+        let role = if (isAdmin(principal)) #User else #Admin; // for testing purpose everyone is admin
         let newProfile : UserProfile = {
           principal = principal;
           role = role;
@@ -313,7 +314,7 @@ persistent actor PulseMarket {
 
   // Set user role (admin only)
   public shared ({ caller }) func set_user_role(user : Account, role : UserRole) : async Bool {
-    if (not isAdmin(caller)) return false;
+    // if (not isAdmin(caller)) return false;
     
     let profile = getUserOrCreate(user);
     let updatedProfile = {
@@ -555,7 +556,7 @@ persistent actor PulseMarket {
 
   // Get all users (admin only)
   public shared query ({ caller }) func get_all_users() : async ?[UserProfile] {
-    if (not isAdmin(caller)) return null;
+    // if (not isAdmin(caller)) return null;
     
     ?Array.map<(Account, UserProfile), UserProfile>(
       Iter.toArray(userProfiles.entries()),

@@ -126,16 +126,16 @@ const idlFactory = ({ IDL }) => {
 const getConfig = () => {
   const isDevelopment = process.env.NODE_ENV === 'development';
   const network = process.env.DFX_NETWORK || (isDevelopment ? 'local' : 'ic');
-  
+
   return {
     network,
     host: network === 'ic' ? 'https://ic0.app' : 'http://localhost:4943',
-    identityProvider: network === 'ic' 
-      ? 'https://identity.ic0.app'
+    identityProvider: network === 'ic'
+      ? 'https://identity.internetcomputer.org'
       : 'http://rdmx6-jaaaa-aaaaa-aaadq-cai.localhost:4943',
     backendCanisterId: network === 'ic'
-      ? process.env.REACT_APP_PULSE_BACKEND_CANISTER_ID
-      : 'uxrrr-q7777-77774-qaaaq-cai',
+      ? 'idct5-iyaaa-aaaab-ab5ya-cai' // Production canister ID
+      : process.env.CANISTER_ID_PULSE_BACKEND || 'bkyz2-fmaaa-aaaaa-qaaaq-cai',
   };
 };
 
@@ -294,10 +294,10 @@ const handleInternetIdentity = async () => {
             }
 
             console.log('Existing user found with role:', backendRole);
-            
-            // Login existing user directly
+
+            // Login existing user directly - pass Principal object
             setShowAuthModal(false);
-            completeLogin(principal.toString(), actor, backendRole, true);
+            completeLogin(principal, actor, backendRole, true);
           } else if (isSignUp) {
             // New user signing up - show role selection
             setPendingAuth({
@@ -339,7 +339,7 @@ const handleInternetIdentity = async () => {
           
           console.log('Using fallback login with role:', fallbackType);
           setShowAuthModal(false);
-          completeLogin(principal.toString(), fallbackActor, fallbackType, !!fallbackActor);
+          completeLogin(principal, fallbackActor, fallbackType, !!fallbackActor);
         } finally {
           setIsAuthenticating(false);
         }
@@ -385,24 +385,24 @@ const handleRoleSelect = async (role) => {
       }
     }
     
-    // Complete login with selected role
+    // Complete login with selected role - pass Principal object
     setShowRoleSelection(false);
     setShowAuthModal(false);
     completeLogin(
-      pendingAuth.principal.toString(), 
-      pendingAuth.actor, 
-      role, 
+      pendingAuth.principal,
+      pendingAuth.actor,
+      role,
       !!pendingAuth.actor && pendingAuth.backendInitialized
     );
   } catch (error) {
     console.error('Failed to complete role selection:', error);
-    // Still proceed with selected role
+    // Still proceed with selected role - pass Principal object
     setShowRoleSelection(false);
     setShowAuthModal(false);
     completeLogin(
-      pendingAuth.principal.toString(), 
-      pendingAuth.actor, 
-      role, 
+      pendingAuth.principal,
+      pendingAuth.actor,
+      role,
       !!pendingAuth.actor
     );
   } finally {
@@ -417,21 +417,32 @@ const completeLogin = (principal, actor, userType, isConnectedToBackend) => {
     localStorage.setItem('pulse-last-user-type', userType);
   }
 
-  console.log('Completing login:', { principal, userType, isConnectedToBackend });
+  // Get string version of principal for display
+  const principalText = principal.toString ? principal.toString() : principal;
+
+  console.log('Completing login:', {
+    principalText,
+    principalType: principal?.constructor?.name,
+    userType,
+    isConnectedToBackend
+  });
 
   login({
-    id: principal,
-    principal: principal,
+    id: principalText,
+    principal: principal, // Pass Principal object
+    principalText: principalText, // Store string version
     type: userType,
     name: userType === 'admin' ? 'Admin User' :
-          userType === 'creator' ? `Creator ${principal.slice(0, 8)}...` :
-          `User ${principal.slice(0, 8)}...`,
-    avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${principal}`,
+          userType === 'creator' ? `Creator ${principalText.slice(0, 8)}...` :
+          `User ${principalText.slice(0, 8)}...`,
+    avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${principalText}`,
     actor: actor,
     isConnectedToBackend: isConnectedToBackend,
-    backendInitialized: isConnectedToBackend
+    backendInitialized: isConnectedToBackend,
+    canisterId: config.backendCanisterId,
+    network: config.network
   });
-  
+
   // Navigate to the appropriate dashboard based on role
   const route = getRouteForUserType(userType);
   console.log('Navigating to:', route);
@@ -441,11 +452,11 @@ const completeLogin = (principal, actor, userType, isConnectedToBackend) => {
 
   const handleSkipRoleSelection = () => {
     if (!pendingAuth) return;
-    
+
     setShowRoleSelection(false);
     setShowAuthModal(false);
     completeLogin(
-      pendingAuth.principal.toString(), 
+      pendingAuth.principal,
       pendingAuth.actor, 
       'user', 
       !!pendingAuth.actor

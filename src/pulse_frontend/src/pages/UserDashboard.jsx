@@ -28,12 +28,12 @@ import CyberpunkTokenButton from "@/components/CyberpunkTokenButton";
 import TokenCreationForm from "@/components/TokenCreationForm";
 
 const UserDashboard = () => {
-  const { user, actor, isConnectedToBackend } = useAuth();
+  const { user, actor, isConnectedToBackend, isAuthenticated, principalObj } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const [selectedTab, setSelectedTab] = useState("portfolio");
   const [isTokenFormOpen, setIsTokenFormOpen] = useState(false);
-  
+
   // Backend state
   const [portfolio, setPortfolio] = useState([]);
   const [allTokens, setAllTokens] = useState([]);
@@ -41,6 +41,14 @@ const UserDashboard = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
+
+  // Redirect to login if not authenticated
+  useEffect(() => {
+    if (!isAuthenticated && !user) {
+      console.log('User not authenticated, redirecting to login');
+      navigate('/login');
+    }
+  }, [isAuthenticated, user, navigate]);
 
   // Update selected tab based on current route
   useEffect(() => {
@@ -60,79 +68,34 @@ const UserDashboard = () => {
     }
   };
 
-  // Validate principal format
-  const isValidPrincipal = (principal) => {
-    if (!principal) return false;
-    
-    // Convert to string if it's a Principal object
-    const principalStr = principal.toString ? principal.toString() : principal;
-    
-    // More permissive validation for IC principal format
-    // IC principals are base32 encoded strings with hyphens as separators
-    // They can have various lengths and ending patterns
-    if (typeof principalStr !== 'string') return false;
-    if (principalStr.length < 27) return false; // Minimum length check
-    
-    // Check for valid base32 characters and hyphen structure
-    const principalRegex = /^[a-z0-9-]+$/;
-    const hasValidStructure = principalRegex.test(principalStr) && 
-                              principalStr.includes('-') && 
-                              !principalStr.startsWith('-') && 
-                              !principalStr.endsWith('-') &&
-                              !principalStr.includes('--'); // No double hyphens
-    
-    return hasValidStructure;
-  };
-
-  // Convert principal to proper format for backend calls
-  const formatPrincipal = (principal) => {
-    if (!principal) return null;
-    
-    // If it's already a Principal object, return as is
-    if (principal.toString && typeof principal.toString === 'function') {
-      return principal;
-    }
-    
-    // If it's a string, try to create Principal from it
-    try {
-      // In a real app, you'd use: import { Principal } from '@dfinity/principal';
-      // For now, we'll use the string directly since the backend expects Principal type
-      return principal;
-    } catch (err) {
-      console.error("Invalid principal format:", err);
-      return null;
-    }
-  };
-
   // Fetch user portfolio and tokens from backend
   const fetchPortfolioData = async () => {
+    console.log('fetchPortfolioData called', {
+      hasActor: !!actor,
+      hasPrincipalObj: !!principalObj,
+      principalObjType: typeof principalObj,
+      principalObjValue: principalObj
+    });
+
     if (!actor) {
-      setError("Backend connection required");
+      setError("Backend connection required. Please login with Internet Identity.");
       setLoading(false);
       return;
     }
 
-    if (!user?.principal) {
-      setError("No user principal available");
-      setLoading(false);
-      return;
-    }
-
-    // Validate principal format
-    if (!isValidPrincipal(user.principal)) {
-      setError(`Invalid principal format: ${user.principal}. Please reconnect with Internet Identity.`);
+    if (!principalObj) {
+      setError("Session expired. Please login again with Internet Identity.");
       setLoading(false);
       return;
     }
 
     try {
       setError(null);
-      console.log("Fetching data for principal:", user.principal);
-      
-      const userPrincipal = formatPrincipal(user.principal);
-      if (!userPrincipal) {
-        throw new Error("Could not format principal for backend call");
-      }
+      console.log("Fetching data for principal:", principalObj.toString());
+      console.log("Principal object type:", principalObj.constructor.name);
+
+      // Use principalObj directly - it's already a Principal object
+      const userPrincipal = principalObj;
 
       // Fetch all tokens
       const tokenIds = await actor.all_tokens();

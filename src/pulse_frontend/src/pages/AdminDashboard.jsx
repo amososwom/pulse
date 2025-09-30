@@ -36,12 +36,20 @@ import CyberpunkTokenButton from "@/components/CyberpunkTokenButton";
 import TokenCreationForm from "@/components/TokenCreationForm";
 
 const AdminDashboard = () => {
-  const { user, actor } = useAuth();
+  const { user, actor, isAuthenticated, principalObj } = useAuth();
   const { toast } = useToast();
   const location = useLocation();
   const navigate = useNavigate();
   const [selectedTab, setSelectedTab] = useState("overview");
   const [isTokenFormOpen, setIsTokenFormOpen] = useState(false);
+
+  // Redirect to login if not authenticated
+  useEffect(() => {
+    if (!isAuthenticated && !user) {
+      console.log('User not authenticated, redirecting to login');
+      navigate('/login');
+    }
+  }, [isAuthenticated, user, navigate]);
 
   // Loading states
   const [isLoadingStats, setIsLoadingStats] = useState(true);

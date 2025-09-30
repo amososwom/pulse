@@ -121,7 +121,7 @@ const Profile = () => {
                       {user?.type}
                     </Badge>
                     <p className="text-sm text-muted-foreground">
-                      {user?.principal?.slice(0, 8)}...{user?.principal?.slice(-4)}
+                      {user?.principalText?.slice(0, 8)}...{user?.principalText?.slice(-4)}
                     </p>
                   </div>
                   

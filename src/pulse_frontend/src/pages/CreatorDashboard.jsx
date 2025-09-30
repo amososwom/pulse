@@ -29,12 +29,12 @@ import TokenCreationForm from "@/components/TokenCreationForm";
 import CyberpunkTokenButton from "@/components/CyberpunkTokenButton";
 
 const CreatorDashboard = () => {
-  const { user, actor, isConnectedToBackend } = useAuth();
+  const { user, actor, isConnectedToBackend, isAuthenticated, principalObj } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const [selectedTab, setSelectedTab] = useState("overview");
   const [isTokenFormOpen, setIsTokenFormOpen] = useState(false);
-  
+
   // Backend state
   const [createdTokens, setCreatedTokens] = useState([]);
   const [userProfile, setUserProfile] = useState(null);
@@ -42,6 +42,14 @@ const CreatorDashboard = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
+
+  // Redirect to login if not authenticated
+  useEffect(() => {
+    if (!isAuthenticated && !user) {
+      console.log('User not authenticated, redirecting to login');
+      navigate('/login');
+    }
+  }, [isAuthenticated, user, navigate]);
 
   useEffect(() => {
     const path = location.pathname;
@@ -63,32 +71,33 @@ const CreatorDashboard = () => {
 
   // Fetch creator's tokens and data from backend
   const fetchCreatorData = async () => {
-    if (!actor || !user?.principal) {
-      setError("Backend connection required");
+    if (!actor || !principalObj) {
+      setError("Backend connection required. Please login with Internet Identity.");
       setLoading(false);
       return;
     }
 
     try {
       setError(null);
-      
+      console.log("Fetching creator data for:", principalObj.toString());
+
       // Fetch all tokens to find ones created by this user
       const allTokenIds = await actor.all_tokens();
       console.log("All token IDs:", allTokenIds);
-      
+
       // Fetch tokens created by this user
       const creatorTokensData = [];
-      
+
       for (const tokenId of allTokenIds) {
         try {
           const tokenInfo = await actor.token_info(Number(tokenId));
           if (tokenInfo && tokenInfo.length > 0) {
             const token = tokenInfo[0];
-            
+
             // Check if this user created the token
-            if (token.minting_account.toString() === user.principal.toString()) {
+            if (token.minting_account.toString() === principalObj.toString()) {
               const totalSupply = await actor.total_supply(Number(tokenId));
-              const userBalance = await actor.balance_of(Number(tokenId), user.principal);
+              const userBalance = await actor.balance_of(Number(tokenId), principalObj);
               
               // Mock additional data for display
               const mockPrice = 1 + (Number(tokenId) * 0.5);
@@ -118,9 +127,9 @@ const CreatorDashboard = () => {
       }
       
       setCreatedTokens(creatorTokensData);
-      
+
       // Fetch user profile
-      const profile = await actor.get_user_profile(user.principal);
+      const profile = await actor.get_user_profile(principalObj);
       if (profile && profile.length > 0) {
         setUserProfile(profile[0]);
       }
@@ -146,7 +155,7 @@ const CreatorDashboard = () => {
       setLoading(false);
       setError("Please connect to backend to access creator dashboard");
     }
-  }, [actor, user?.principal, isConnectedToBackend]);
+  }, [actor, principalObj, isConnectedToBackend]);
 
   // Refresh data
   const handleRefresh = () => {
@@ -156,8 +165,8 @@ const CreatorDashboard = () => {
 
   // Handle token actions
   const handleTokenAction = async (tokenId, action) => {
-    if (!actor || !user?.principal) {
-      setError("Backend connection required");
+    if (!actor || !principalObj) {
+      setError("Backend connection required. Please login with Internet Identity.");
       return;
     }
 
@@ -197,7 +206,7 @@ const CreatorDashboard = () => {
     type: ['mint', 'transfer', 'trade'][index % 3],
     amount: Math.floor(Math.random() * 2000) + 100,
     token: token.symbol,
-    user: `${user.principal.toString().slice(0, 8)}...${user.principal.toString().slice(-4)}`,
+    user: `${(user.principalText || user.principal?.toString() || user.id).slice(0, 8)}...${(user.principalText || user.principal?.toString() || user.id).slice(-4)}`,
     timestamp: ['2 hours ago', '4 hours ago', '6 hours ago'][index],
     value: (Math.floor(Math.random() * 2000) + 100) * token.price
   }));

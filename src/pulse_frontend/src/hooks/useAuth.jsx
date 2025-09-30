@@ -102,20 +102,93 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [isInitialized, setIsInitialized] = useState(false);
 
+  // Helper function for getting environment info (needed in useEffect)
+  const getEnvironmentInfo = () => {
+    const isDevelopment = process.env.NODE_ENV === 'development';
+    const network = process.env.DFX_NETWORK || (isDevelopment ? 'local' : 'ic');
+
+    return {
+      isDevelopment,
+      network,
+      canisterId: network === 'ic'
+        ? "idct5-iyaaa-aaaab-ab5ya-cai" // Production canister from canister_ids.json
+        : process.env.CANISTER_ID_PULSE_BACKEND || 'bkyz2-fmaaa-aaaaa-qaaaq-cai', // Local development canister
+      host: network === 'ic' ? 'https://ic0.app' : 'http://localhost:4943',
+      identityProvider: network === 'ic'
+        ? 'https://identity.internetcomputer.org'
+        : 'http://rdmx6-jaaaa-aaaaa-aaadq-cai.localhost:4943'
+    };
+  };
+
   useEffect(() => {
-    // Initialize auth state from storage
-    const initializeAuth = () => {
+    // Initialize auth state from storage and try to restore session
+    const initializeAuth = async () => {
       try {
         const storedUser = safeStorage.getItem('pulse-user');
         if (storedUser) {
           const userData = JSON.parse(storedUser);
-          
+
           // Validate stored data structure
           if (userData && typeof userData === 'object' && userData.id) {
             // Ensure permissions are up to date
             userData.permissions = getUserPermissions(userData.type);
+
+            // Try to restore Internet Identity session if user was connected to backend
+            if (userData.isConnectedToBackend && !userData.isDemo) {
+              try {
+                // Dynamically import AuthClient and restore session
+                const { AuthClient } = await import('@dfinity/auth-client');
+                const { Actor, HttpAgent } = await import('@dfinity/agent');
+                const { Principal } = await import('@dfinity/principal');
+
+                const authClient = await AuthClient.create();
+                const isAuthenticated = await authClient.isAuthenticated();
+
+                if (isAuthenticated) {
+                  const identity = authClient.getIdentity();
+                  const principal = identity.getPrincipal();
+
+                  // Only restore if the principal matches stored one
+                  if (principal.toString() === userData.principalText) {
+                    // Create actor with restored identity
+                    const envInfo = getEnvironmentInfo();
+                    const agent = new HttpAgent({
+                      identity,
+                      host: envInfo.host
+                    });
+
+                    if (envInfo.network !== 'ic') {
+                      await agent.fetchRootKey();
+                    }
+
+                    // Import the IDL factory from declarations
+                    const { idlFactory } = await import('../../../declarations/pulse_backend');
+
+                    const actor = Actor.createActor(idlFactory, {
+                      agent,
+                      canisterId: envInfo.canisterId,
+                    });
+
+                    // Restore full session with Principal object and actor
+                    userData.principal = principal;
+                    userData.actor = actor;
+                    userData.isConnectedToBackend = true;
+
+                    setUser(userData);
+                    console.log('Session fully restored with backend connection:', userData.principalText);
+                    setIsInitialized(true);
+                    return;
+                  }
+                }
+              } catch (restoreError) {
+                console.warn('Failed to restore backend connection:', restoreError);
+              }
+            }
+
+            // If we couldn't restore backend connection, just restore UI session
             setUser(userData);
-            console.log('User restored from storage:', userData.principal, 'as', userData.type);
+            console.log('User restored from storage:', userData.principalText || userData.id, 'as', userData.type);
+            console.log('Note: Backend connection not restored. User needs to login again for backend calls.');
           } else {
             // Clear invalid stored data
             safeStorage.removeItem('pulse-user');
@@ -140,10 +213,15 @@ export const AuthProvider = ({ children }) => {
         throw new Error('Invalid user data provided to login');
       }
 
+      // Get principal text for display purposes
+      const principalText = userData.principalText ||
+                           (userData.principal?.toString ? userData.principal.toString() : userData.id);
+
       // Ensure userData has required fields with enhanced role support
       const completeUserData = {
         id: userData.id,
-        principal: userData.principal || userData.id,
+        principal: userData.principal, // Keep the Principal object
+        principalText: principalText, // Store string version separately
         type: userData.type || 'user',
         name: userData.name || `User ${userData.id.slice(0, 8)}...`,
         avatar: userData.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${userData.id}`,
@@ -161,14 +239,22 @@ export const AuthProvider = ({ children }) => {
       };
 
       setUser(completeUserData);
-      
-      // Store user data (excluding actor which can't be serialized)
+
+      console.log('Login - completeUserData:', {
+        hasPrincipal: !!completeUserData.principal,
+        principalType: typeof completeUserData.principal,
+        principalConstructor: completeUserData.principal?.constructor?.name,
+        principalText: completeUserData.principalText
+      });
+
+      // Store user data (excluding actor and principal object which can't be serialized)
       const storableData = { ...completeUserData };
       delete storableData.actor; // Remove actor before storing
-      
+      delete storableData.principal; // Remove Principal object before storing
+
       safeStorage.setItem('pulse-user', JSON.stringify(storableData));
-      
-      console.log('User logged in:', completeUserData.principal, 'as', completeUserData.type, 
+
+      console.log('User logged in:', principalText, 'as', completeUserData.type,
                   completeUserData.isConnectedToBackend ? '(backend connected)' : '(demo mode)');
     } catch (error) {
       console.error('Login error:', error);
@@ -355,23 +441,6 @@ const updateActor = async (actor) => {
     }
   };
 
-  const getEnvironmentInfo = () => {
-    const isDevelopment = process.env.NODE_ENV === 'development';
-    const network = process.env.DFX_NETWORK || (isDevelopment ? 'local' : 'ic');
-    
-    return {
-      isDevelopment,
-      network,
-      canisterId: network === 'ic' 
-        ? process.env.REACT_APP_PULSE_BACKEND_CANISTER_ID || "idct5-iyaaa-aaaab-ab5ya-cai"
-        : 'uxrrr-q7777-77774-qaaaq-cai',
-      host: network === 'ic' ? 'https://ic0.app' : 'http://localhost:4943',
-      identityProvider: network === 'ic' 
-        ? 'https://identity.ic0.app'
-        : 'http://rdmx6-jaaaa-aaaaa-aaadq-cai.localhost:4943'
-    };
-  };
-
   const value = {
     user,
     isAuthenticated: !!user,
@@ -384,7 +453,8 @@ const updateActor = async (actor) => {
     syncWithBackend,
     getEnvironmentInfo,
     // Computed values for easier access
-    principal: user?.principal || null,
+    principal: user?.principalText || user?.id || null, // Always return string version
+    principalObj: user?.principal || null, // Provide Principal object separately
     userType: user?.type || null,
     actor: user?.actor || null,
     isConnectedToBackend: user?.isConnectedToBackend || false,

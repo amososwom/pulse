@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { AuthClient } from '@dfinity/auth-client';
 import { Actor, HttpAgent } from '@dfinity/agent';
+import { Principal } from '@dfinity/principal';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -11,48 +12,74 @@ import { useAuth } from "@/hooks/useAuth";
 // Backend canister interface - Updated to match your Motoko backend
 const idlFactory = ({ IDL }) => {
   const TokenId = IDL.Nat;
-  const Tokens = IDL.Nat;
   const Account = IDL.Principal;
-  
+  const Tokens = IDL.Nat;
+
   const CreateTokenError = IDL.Variant({
-    'InvalidName': IDL.Null,
-    'InvalidSymbol': IDL.Null,
-    'InvalidSupply': IDL.Null,
     'AnonymousNotAllowed': IDL.Null,
+    'InvalidSymbol': IDL.Null,
+    'InvalidName': IDL.Null,
+    'RateLimitExceeded': IDL.Null,
+    'InsufficientPermissions': IDL.Null,
     'InternalError': IDL.Text,
+    'InvalidSupply': IDL.Null,
   });
 
-  const CreateTokenResult = IDL.Variant({
-    'ok': TokenId,
-    'err': CreateTokenError,
+  const Result_1 = IDL.Variant({ 'ok': TokenId, 'err': CreateTokenError });
+
+  const UserRole = IDL.Variant({
+    'User': IDL.Null,
+    'Admin': IDL.Null,
+    'Creator': IDL.Null,
   });
-  
+
+  const UserProfile = IDL.Record({
+    'tokensCreated': IDL.Nat,
+    'principal': Account,
+    'createdAt': IDL.Nat64,
+    'role': UserRole,
+    'isVerified': IDL.Bool,
+    'lastActive': IDL.Nat64,
+  });
+
   return IDL.Service({
+    'all_tokens': IDL.Func([], [IDL.Vec(TokenId)], ['query']),
+    'balance_of': IDL.Func([TokenId, Account], [Tokens], ['query']),
     'create_token': IDL.Func(
       [IDL.Text, IDL.Text, Tokens, IDL.Nat8, IDL.Opt(IDL.Text)],
-      [CreateTokenResult],
+      [Result_1],
       [],
     ),
-    'whoami': IDL.Func([], [IDL.Principal], ['query']),
+    'get_or_create_profile': IDL.Func([], [UserProfile], []),
+    'get_stats': IDL.Func(
+      [],
+      [IDL.Record({
+        'creator_count': IDL.Nat,
+        'total_users': IDL.Nat,
+        'admin_count': IDL.Nat,
+        'total_tokens': IDL.Nat,
+      })],
+      ['query'],
+    ),
+    'get_user_profile': IDL.Func([Account], [IDL.Opt(UserProfile)], ['query']),
     'get_user_tokens': IDL.Func([Account], [IDL.Vec(IDL.Tuple(TokenId, Tokens))], ['query']),
+    'initialize_user': IDL.Func([], [UserProfile], []),
+    'is_admin': IDL.Func([Account], [IDL.Bool], ['query']),
+    'ping': IDL.Func([], [IDL.Bool], []),
     'token_info': IDL.Func(
       [TokenId],
       [IDL.Opt(IDL.Record({
-        'name': IDL.Text,
-        'symbol': IDL.Text,
         'decimals': IDL.Nat8,
-        'total_supply': Tokens,
         'minting_account': Account,
+        'name': IDL.Text,
         'logo_url': IDL.Opt(IDL.Text),
+        'total_supply': Tokens,
+        'symbol': IDL.Text,
       }))],
       ['query'],
     ),
-    'get_stats': IDL.Func([], [IDL.Record({
-      'total_tokens': IDL.Nat,
-      'total_listings': IDL.Nat,
-      'active_listings': IDL.Nat,
-    })], ['query']),
-    'balance_of': IDL.Func([TokenId, Account], [Tokens], ['query']),
+    'total_supply': IDL.Func([TokenId], [Tokens], ['query']),
+    'whoami': IDL.Func([], [IDL.Principal], ['query']),
   });
 };
 
@@ -60,16 +87,16 @@ const idlFactory = ({ IDL }) => {
 const getConfig = () => {
   const isDevelopment = process.env.NODE_ENV === 'development';
   const network = process.env.DFX_NETWORK || (isDevelopment ? 'local' : 'ic');
-  
+
   return {
     network,
     host: network === 'ic' ? 'https://ic0.app' : 'http://localhost:4943',
-    identityProvider: network === 'ic' 
-      ? 'https://identity.ic0.app'
+    identityProvider: network === 'ic'
+      ? 'https://identity.internetcomputer.org'
       : 'http://rdmx6-jaaaa-aaaaa-aaadq-cai.localhost:4943',
     backendCanisterId: network === 'ic'
-      ? process.env.REACT_APP_PULSE_BACKEND_CANISTER_ID
-      : 'uxrrr-q7777-77774-qaaaq-cai', // Your local canister ID
+      ? 'idct5-iyaaa-aaaab-ab5ya-cai' // Production canister ID from canister_ids.json
+      : process.env.CANISTER_ID_PULSE_BACKEND || 'bkyz2-fmaaa-aaaaa-qaaaq-cai', // Local development canister
   };
 };
 
@@ -147,27 +174,50 @@ const Login = () => {
       const whoami = await actor.whoami();
       console.log('Connected to backend as:', whoami.toString());
 
+      // Initialize user profile in backend
+      try {
+        await actor.initialize_user();
+        console.log('User profile initialized in backend');
+      } catch (initErr) {
+        console.warn('Failed to initialize user, trying ping:', initErr);
+        try {
+          await actor.ping();
+        } catch (pingErr) {
+          console.error('Ping also failed:', pingErr);
+        }
+      }
+
       // Get user's tokens to determine user type
+      // whoami returns a Principal object, use it directly
       const userTokens = await actor.get_user_tokens(whoami);
       const userType = userTokens.length > 0 ? 'creator' : 'user';
-      
+
+      console.log('User type determined:', userType, 'Tokens:', userTokens.length);
+
       // Login with auth provider
-      login({
+      const userData = {
         id: principal,
-        principal: principal,
+        principal: whoami, // Store the Principal object returned from backend
+        principalText: whoami.toString(), // Store string version for display
         type: userType,
         name: `User ${principal.slice(0, 8)}...`,
         avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${principal}`,
         actor: actor, // Store actor in auth context
-        isConnectedToBackend: true
-      });
-      
+        isConnectedToBackend: true,
+        canisterId: config.backendCanisterId,
+        network: config.network
+      };
+
+      console.log('Completing login:', userData);
+      login(userData);
+      console.log('Navigating to:', userType === 'creator' ? '/creator' : '/dashboard');
+
       // Navigate based on user type
       navigate(userType === 'creator' ? '/creator' : '/dashboard');
     } catch (err) {
       console.error('Error during successful auth handling:', err);
       setError('Connected to Internet Identity but failed to connect to backend');
-      
+
       // Still login but without backend connection
       login({
         id: principal,

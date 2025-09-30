@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/hooks/useAuth";
 import Index from "./pages/Index";
-import Login from "./pages/Login";
+// import Login from "./pages/Login";
 import CreatorDashboard from "./pages/CreatorDashboard";
 import UserDashboard from "./pages/UserDashboard";
 import AdminDashboard from "./pages/AdminDashboard";
@@ -24,7 +24,7 @@ const App = () => (
         <Toaster />
         <Sonner />
           <Routes>
-            <Route path="/login" element={<Login />} />
+            {/* <Route path="/login" element={<Login />} /> */}
             
             {/* Creator Dashboard Routes */}
             <Route path="/creator" element={<CreatorDashboard />} />
@@ -52,6 +52,7 @@ const App = () => (
             <Route path="/profile" element={<Profile />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="/explore" element={<ExplorePage />} />
+            <Route path="/login" element={<MainLanding />} />
             <Route path="/" element={<MainLanding />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
